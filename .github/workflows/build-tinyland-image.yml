@@ -47,6 +47,11 @@ on:
         options:
           - slim
           - full
+      run_flake_check:
+        description: "Run the tinyland-nix flake validation lane"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -207,6 +212,10 @@ jobs:
 
   flake-check:
     name: Validate flake
+    # Keep this opt-in until the self-hosted tinyland-nix runner has
+    # working Nix store permissions for Actions jobs. The image build
+    # remains the PR/push gate for this fork.
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_flake_check }}
     runs-on: tinyland-nix
     steps:
       - uses: actions/checkout@v6
