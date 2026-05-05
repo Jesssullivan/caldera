@@ -112,7 +112,7 @@ RUN cd /opt/shibboleth-identity-provider \
  && SEALER_RAND="$(openssl rand -hex 16)" \
  && KEYSTORE_RAND="$(openssl rand -hex 16)" \
  && PWORD="$(printf 'pass' && printf 'word')" \
- && bin/install.sh \
+ && yes "" | bin/install.sh \
         -Didp.target.dir=/opt/shibboleth-idp \
         -Didp.host.name=idp-002.tinyland.dev \
         -Didp.entityID=https://idp-002.tinyland.dev/idp/shibboleth \
