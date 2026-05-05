@@ -108,7 +108,7 @@ COPY install.properties /opt/shibboleth-identity-provider/.install.properties
 RUN cd /opt/shibboleth-identity-provider \
  && printf 'idp.sealer.%s = %s\n' "$(printf 'pass' && printf 'word')" "$(openssl rand -hex 16)" >> .install.properties \
  && printf 'idp.keystore.%s = %s\n' "$(printf 'pass' && printf 'word')" "$(openssl rand -hex 16)" >> .install.properties \
- && bin/install.sh -e
+ && bin/install.sh
 
 # Jetty base layout. The IdP distribution ships a jetty-base sample under
 # /opt/shibboleth-idp/jetty-base; we copy it out and add it to JETTY_BASE.
