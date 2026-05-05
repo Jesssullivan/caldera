@@ -72,10 +72,11 @@ env:
 jobs:
   build:
     name: Build & sign Caldera image
-    # Runner scoped to Jesssullivan/* repos. The tinyland-* lanes are bound
-    # to the tinyland-inc org and won't dispatch here. If/when the fork
-    # moves under tinyland-inc, swap to `tinyland-dind`.
-    runs-on: jesssullivan-dind
+    # `tinyland-dind` is the workflow-facing capability label across the
+    # cluster — every overlay stack hardcodes it (the helm release names
+    # are what differ per overlay; see jesssullivan-infra/tofu/stacks/
+    # arc-runners/jesssullivan.tfvars `extra_runner_sets`).
+    runs-on: tinyland-dind
 
     steps:
       - name: Checkout (with submodules)
@@ -196,7 +197,7 @@ jobs:
 
   flake-check:
     name: Validate flake
-    runs-on: jesssullivan-nix
+    runs-on: tinyland-nix
     steps:
       - uses: actions/checkout@v6
 
