@@ -63,7 +63,9 @@ env:
   # GITHUB_TOKEN can publish to ghcr.io/<repo-owner>/* without extra perms;
   # crossing into ghcr.io/tinyland-inc/* requires either an org PAT secret
   # or moving the source repo. Phase 1 keeps things working with the
-  # default token; Phase 2 deploys reference the same registry path.
+  # default token; Phase 2 deploys reference the same registry path. The
+  # tag step lowercases this value because OCI repository names reject
+  # mixed-case GitHub owners such as Jesssullivan.
   IMAGE_NAME: ${{ github.repository_owner }}/caldera
   # Phase 1 ships slim by default — fast iteration, network-attached deploy.
   # Bump to full once we want offline atomic/emu support (separate Linear).
@@ -106,8 +108,9 @@ jobs:
           set -euo pipefail
           ref_slug="${REF_NAME//\//-}"
           short_sha="${SHA::12}"
-          base="${REGISTRY}/${IMAGE_NAME}"
+          base="${REGISTRY}/${IMAGE_NAME,,}"
           {
+            echo "image=${base}"
             echo "tags<<EOF"
             echo "${base}:${VARIANT}-${short_sha}"
             echo "${base}:${VARIANT}-${ref_slug}"
@@ -156,7 +159,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          image-ref: ${{ steps.tags.outputs.image }}@${{ steps.build.outputs.digest }}
           cache: false
           cache-dir: ${{ github.workspace }}/.cache/trivy
           format: table
@@ -171,7 +174,7 @@ jobs:
       - name: Sign image with cosign (keyless)
         if: github.event_name != 'pull_request'
         env:
-          DIGEST_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          DIGEST_REF: ${{ steps.tags.outputs.image }}@${{ steps.build.outputs.digest }}
         shell: bash
         run: |
           set -euo pipefail
