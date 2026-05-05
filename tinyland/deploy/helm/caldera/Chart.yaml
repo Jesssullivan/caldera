@@ -1,0 +1,32 @@
+apiVersion: v2
+name: caldera
+description: |
+  MITRE Caldera — adversary-emulation platform. This chart is the Tinyland
+  fork's on-prem deployment shape: single-replica, RWO PVC, Recreate
+  strategy, optional Tailscale-operator + cert-manager wiring. Written for
+  the Tinyland fork at github.com/Jesssullivan/caldera but works with any
+  upstream-compatible Caldera image as long as the SAML plugin's xmlsec
+  native deps are present.
+type: application
+version: 0.1.0
+appVersion: "5.1.0"
+home: https://github.com/Jesssullivan/caldera
+sources:
+  - https://github.com/Jesssullivan/caldera
+  - https://github.com/mitre/caldera
+maintainers:
+  - name: Jess Sullivan
+    email: jess@sulliwood.org
+keywords:
+  - caldera
+  - mitre
+  - adversary-emulation
+  - red-team
+  - security
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: Plan
+      url: https://github.com/Jesssullivan/caldera/blob/master/tinyland/docs/plan-onprem-saml.md
+    - name: Fork-sync runbook
+      url: https://github.com/Jesssullivan/caldera/blob/master/tinyland/docs/fork-sync-runbook.md

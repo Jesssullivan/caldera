@@ -1,0 +1,36 @@
+{{- if .Values.networkPolicy.enabled -}}
+# Default deny — anything not explicitly allowed below is dropped.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "caldera.fullname" . }}-default-deny
+  labels: {{- include "caldera.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "caldera.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+---
+# Allow only the namespaces and pods configured in values.networkPolicy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "caldera.fullname" . }}-allow
+  labels: {{- include "caldera.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "caldera.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- range .Values.networkPolicy.allowedIngressNamespaces }}
+        - namespaceSelector:
+            matchLabels:
+              {{ .labelKey }}: {{ .name | quote }}
+        {{- end }}
+        {{- range .Values.networkPolicy.allowedIngressPodLabels }}
+        - podSelector:
+            matchLabels: {{- toYaml . | nindent 14 }}
+        {{- end }}
+{{- end }}

@@ -40,7 +40,8 @@ COPY --from=ui-build /usr/src/app/plugins/magma/dist /usr/src/app/plugins/magma/
 # From https://docs.docker.com/build/building/best-practices/
 # Install caldera dependencies
 RUN apt-get update && \
-apt-get --no-install-recommends -y install git curl unzip python3-dev python3-pip mingw-w64 zlib1g gcc && \
+apt-get --no-install-recommends -y install git curl unzip python3-dev python3-pip mingw-w64 zlib1g gcc \
+    libxml2-dev libxslt1-dev libxmlsec1-dev libxmlsec1-openssl pkg-config xmlsec1 && \
 rm -rf /var/lib/apt/lists/*
 
 # Install Golang from source (apt version is too out-of-date)
@@ -78,9 +79,14 @@ RUN if [ ! -d "/usr/src/app/plugins/emu/data/adversary-emulation-plans" ] && [ "
             /usr/src/app/plugins/emu/data/adversary-emulation-plans;                  \
 fi
 
-# Download emu payloads
-# emu doesn't seem capable of running this itself - always download
-RUN cd /usr/src/app/plugins/emu; ./download_payloads.sh
+# Download emu payloads only for the full/offline image. The slim image is
+# the default CI/deploy variant and should not block on large external EMU
+# payload mirrors.
+RUN if [ "$VARIANT" = "full" ]; then \
+        cd /usr/src/app/plugins/emu; ./download_payloads.sh; \
+    else \
+        echo "Skipping EMU payload downloads for slim image"; \
+    fi
 
 # The commands above (git clone) will generate *huge* .git folders - remove them
 RUN (find . -type d -name ".git") | xargs rm -rf
