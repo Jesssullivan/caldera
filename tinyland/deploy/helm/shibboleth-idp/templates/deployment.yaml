@@ -76,17 +76,49 @@ spec:
             # metadata-providers, relying-party). Provided by var.idp_config
             # via a ConfigMap; rendered by tofu from .xml templates that
             # reference the IdP's federation peers + caldera SP entity ID.
+            #
+            # subPath mounts: a directory mount at /opt/shibboleth-idp/conf
+            # would shadow the image-baked idp.properties + dozen other
+            # config files, breaking IdP startup. subPath mounts replace
+            # ONLY our four overrides and leave everything else intact.
             {{- if .Values.idpConfig.configMapName }}
             - name: idp-config
-              mountPath: /opt/shibboleth-idp/conf
+              mountPath: /opt/shibboleth-idp/conf/attribute-resolver.xml
+              subPath: attribute-resolver.xml
+              readOnly: true
+            - name: idp-config
+              mountPath: /opt/shibboleth-idp/conf/attribute-filter.xml
+              subPath: attribute-filter.xml
+              readOnly: true
+            - name: idp-config
+              mountPath: /opt/shibboleth-idp/conf/metadata-providers.xml
+              subPath: metadata-providers.xml
+              readOnly: true
+            - name: idp-config
+              mountPath: /opt/shibboleth-idp/conf/relying-party.xml
+              subPath: relying-party.xml
               readOnly: true
             {{- end }}
-            # IdP signing + encryption keypairs + sealer keystore. Sourced
-            # from a SOPS-decrypted Secret. Overlays the throwaway material
-            # baked into the image during install.sh.
+            # IdP signing + encryption keypairs. subPath again — a
+            # directory mount would shadow the image-baked sealer.jks
+            # (which we do NOT carry in the SOPS bundle; see
+            # phase-4-shibboleth-plan.md §3 on sealer rotation).
             {{- if .Values.idpCredentials.secretName }}
             - name: idp-credentials
-              mountPath: /opt/shibboleth-idp/credentials
+              mountPath: /opt/shibboleth-idp/credentials/idp-signing.crt
+              subPath: idp-signing.crt
+              readOnly: true
+            - name: idp-credentials
+              mountPath: /opt/shibboleth-idp/credentials/idp-signing.key
+              subPath: idp-signing.key
+              readOnly: true
+            - name: idp-credentials
+              mountPath: /opt/shibboleth-idp/credentials/idp-encryption.crt
+              subPath: idp-encryption.crt
+              readOnly: true
+            - name: idp-credentials
+              mountPath: /opt/shibboleth-idp/credentials/idp-encryption.key
+              subPath: idp-encryption.key
               readOnly: true
             {{- end }}
       volumes:
