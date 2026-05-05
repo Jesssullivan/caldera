@@ -20,6 +20,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
@@ -62,11 +64,11 @@ jobs:
         run: tox
 
       - name: SonarQube Scan
-        if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false) }}
+        if: ${{ env.SONAR_TOKEN != '' && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false)) }}
         uses: SonarSource/sonarqube-scan-action@v6.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
 
   sonar_fork_pr:
     runs-on: ubuntu-latest
@@ -74,6 +76,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
       - name: Checkout base repo
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
@@ -103,9 +107,10 @@ jobs:
           fi
 
       - name: SonarQube Scan (fork PR)
+        if: ${{ env.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-scan-action@v6.0.0
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectBaseDir: ${{ steps.detect.outputs.base }}
