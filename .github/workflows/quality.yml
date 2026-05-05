@@ -62,7 +62,7 @@ jobs:
         run: tox
 
       - name: SonarQube Scan
-        if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false) }}
+        if: ${{ vars.ENABLE_SONAR == 'true' && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false)) }}
         uses: SonarSource/sonarqube-scan-action@v6.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -70,7 +70,7 @@ jobs:
 
   sonar_fork_pr:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.fork }}
+    if: ${{ vars.ENABLE_SONAR_FORK_PR == 'true' && github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.fork }}
     permissions:
       contents: read
       pull-requests: write
