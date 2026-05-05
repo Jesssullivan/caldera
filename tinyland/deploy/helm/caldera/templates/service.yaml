@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "caldera.fullname" . }}
+  labels: {{- include "caldera.labels" . | nindent 4 }}
+  {{- if .Values.service.tailscale.enabled }}
+  annotations:
+    tailscale.com/expose: "true"
+    tailscale.com/hostname: {{ .Values.service.tailscale.hostname | quote }}
+    {{- if .Values.service.tailscale.proxyClass }}
+    tailscale.com/proxy-class: {{ .Values.service.tailscale.proxyClass | quote }}
+    {{- end }}
+    {{- if .Values.service.tailscale.https }}
+    tailscale.com/https: "true"
+    {{- end }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector: {{- include "caldera.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+    - name: contact-tcp
+      port: {{ .Values.ports.contactTcp }}
+      targetPort: contact-tcp
+      protocol: TCP
+    - name: contact-udp
+      port: {{ .Values.ports.contactUdp }}
+      targetPort: contact-udp
+      protocol: UDP
+    - name: contact-ws
+      port: {{ .Values.ports.contactWs }}
+      targetPort: contact-ws
+      protocol: TCP
+    {{- if .Values.ports.contactDnsEnabled }}
+    - name: contact-dns
+      port: {{ .Values.ports.contactDns }}
+      targetPort: contact-dns
+      protocol: UDP
+    {{- end }}
+    {{- if .Values.ports.contactSshEnabled }}
+    - name: contact-ssh
+      port: {{ .Values.ports.contactSsh }}
+      targetPort: contact-ssh
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.ports.contactFtpEnabled }}
+    - name: contact-ftp
+      port: {{ .Values.ports.contactFtp }}
+      targetPort: contact-ftp
+      protocol: TCP
+    {{- end }}

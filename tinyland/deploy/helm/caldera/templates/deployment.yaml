@@ -1,0 +1,214 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "caldera.fullname" . }}
+  labels: {{- include "caldera.labels" . | nindent 4 }}
+spec:
+  # Caldera writes in-process state. Multi-replica is unsafe.
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: {{ .Values.deploymentStrategy }}
+  selector:
+    matchLabels: {{- include "caldera.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "caldera.selectorLabels" . | nindent 8 }}
+        {{- with .Values.extraLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- if .Values.podAnnotations }}
+      annotations: {{- toYaml .Values.podAnnotations | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "caldera.serviceAccountName" . }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        {{- if and .Values.persistence.enabled .Values.persistence.seedInitContainer.enabled }}
+        - name: seed-data
+          # Mirror the upstream data/ skeleton onto the PVC on first mount.
+          # Caldera refuses to start if data/ subdirs are missing; this
+          # keeps the volume self-healing across image bumps without
+          # clobbering user-generated state.
+          image: "{{ .Values.persistence.seedInitContainer.image.repository }}:{{ .Values.persistence.seedInitContainer.image.tag }}"
+          imagePullPolicy: {{ .Values.persistence.seedInitContainer.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              # Required subdirs from upstream data/ — keep in sync with
+              # https://github.com/mitre/caldera/tree/master/data
+              for d in abilities adversaries facts objectives payloads \
+                       planners results sources backup; do
+                mkdir -p "/data/${d}"
+              done
+              # Permissions matching the runtime container's UID/GID
+              # (default 0:0 since upstream Caldera runs as root).
+              chown -R {{ default 0 .Values.containerSecurityContext.runAsUser }}:{{ default 0 .Values.containerSecurityContext.runAsGroup }} /data || true
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+        {{- end }}
+        {{- if .Values.config.mountConfig }}
+        - name: seed-config
+          # Caldera's config_util.hash_config_creds() rewrites local.yml
+          # in-place after hashing user passwords on first start. Secret
+          # subPath mounts are read-only, so we instead seed a writable
+          # emptyDir from the image's own conf/ skeleton and merge our
+          # operator-owned local.yml overrides on top. Same pattern handles SAML
+          # settings.json when the saml plugin is enabled.
+          image: {{ include "caldera.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              # Copy image-baked conf/ (default.yml, payloads.yml,
+              # agents.yml, ssh_keys/) into the writable emptyDir.
+              cp -a /usr/src/app/conf/. /work/conf/
+              # Caldera reads conf/local.yml directly; it does not merge
+              # local.yml over default.yml itself. The Secret intentionally
+              # contains only operator-owned overrides, so materialize a
+              # full runtime local.yml here.
+              python3 -c 'import pathlib, yaml; default_path = pathlib.Path("/work/conf/default.yml"); override_path = pathlib.Path("/etc/caldera-config/local.yml"); output_path = pathlib.Path("/work/conf/local.yml"); config = yaml.safe_load(default_path.read_text(encoding="utf-8")) or {}; overrides = yaml.safe_load(override_path.read_text(encoding="utf-8")) or {}; config.update(overrides); output_path.write_text(yaml.safe_dump(config, default_flow_style=False), encoding="utf-8")'
+              {{- if eq (default "" .Values.authLoginHandlerModule) "plugins.saml.app.saml_login_handler" }}
+              # SAML plugin: same trick for plugins/saml/conf since the
+              # plugin reads + may rewrite settings.json on init.
+              if [ -d /usr/src/app/plugins/saml/conf ]; then
+                cp -a /usr/src/app/plugins/saml/conf/. /work/saml-conf/
+              fi
+              if [ -f /etc/caldera-config/{{ .Values.config.samlSettingsKey }} ]; then
+                cp /etc/caldera-config/{{ .Values.config.samlSettingsKey }} \
+                   /work/saml-conf/{{ .Values.config.samlSettingsKey }}
+              fi
+              {{- end }}
+              # Match the runtime container's UID/GID so it can rewrite.
+              chown -R {{ default 0 .Values.containerSecurityContext.runAsUser }}:{{ default 0 .Values.containerSecurityContext.runAsGroup }} /work/ || true
+          volumeMounts:
+            - name: conf
+              mountPath: /work/conf
+            {{- if eq (default "" .Values.authLoginHandlerModule) "plugins.saml.app.saml_login_handler" }}
+            - name: saml-conf
+              mountPath: /work/saml-conf
+            {{- end }}
+            - name: config-source
+              mountPath: /etc/caldera-config
+              readOnly: true
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+        {{- end }}
+      containers:
+        - name: caldera
+          image: {{ include "caldera.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.ports.http }}
+              protocol: TCP
+            - name: contact-tcp
+              containerPort: {{ .Values.ports.contactTcp }}
+              protocol: TCP
+            - name: contact-udp
+              containerPort: {{ .Values.ports.contactUdp }}
+              protocol: UDP
+            - name: contact-ws
+              containerPort: {{ .Values.ports.contactWs }}
+              protocol: TCP
+            {{- if .Values.ports.contactDnsEnabled }}
+            - name: contact-dns
+              containerPort: {{ .Values.ports.contactDns }}
+              protocol: UDP
+            {{- end }}
+            {{- if .Values.ports.contactSshEnabled }}
+            - name: contact-ssh
+              containerPort: {{ .Values.ports.contactSsh }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.ports.contactFtpEnabled }}
+            - name: contact-ftp
+              containerPort: {{ .Values.ports.contactFtp }}
+              protocol: TCP
+            {{- end }}
+          env:
+            - name: TZ
+              value: UTC
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.livenessProbe.httpGet.path }}
+              port: {{ .Values.livenessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessProbe.httpGet.path }}
+              port: {{ .Values.readinessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            {{- if .Values.persistence.enabled }}
+            - name: data
+              mountPath: /usr/src/app/data
+            {{- end }}
+            {{- if .Values.config.mountConfig }}
+            - name: conf
+              mountPath: /usr/src/app/conf
+            {{- if eq (default "" .Values.authLoginHandlerModule) "plugins.saml.app.saml_login_handler" }}
+            - name: saml-conf
+              mountPath: /usr/src/app/plugins/saml/conf
+            {{- end }}
+            {{- end }}
+      volumes:
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "caldera.fullname" . }}-data
+        {{- end }}
+        {{- if .Values.config.mountConfig }}
+        # Writable conf/ overlay: seeded from image + Secret by the
+        # `seed-config` initContainer.
+        - name: conf
+          emptyDir: {}
+        {{- if eq (default "" .Values.authLoginHandlerModule) "plugins.saml.app.saml_login_handler" }}
+        - name: saml-conf
+          emptyDir: {}
+        {{- end }}
+        # Source-of-truth Secret containing local.yml (and optionally
+        # SAML settings.json). Mounted only into the seed-config
+        # initContainer; never reaches the runtime container.
+        - name: config-source
+          secret:
+            secretName: {{ include "caldera.configSecretName" . }}
+        {{- end }}

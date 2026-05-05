@@ -1,0 +1,221 @@
+# Default values for the caldera chart.
+# Override per-environment in your tofu stack (see blahaj/tofu/stacks/caldera).
+
+# -- Image source and pull behavior.
+image:
+  # Default tracks the Tinyland fork. Override to mitre/caldera for upstream.
+  repository: ghcr.io/jesssullivan/caldera
+  # Pin a specific digest in production deploys.
+  tag: "slim-master"
+  pullPolicy: IfNotPresent
+  # imagePullSecrets are referenced by name; create them out-of-band (SOPS).
+  pullSecrets:
+    - name: ghcr-pull
+
+# -- Caldera variant. Affects which payload data is bundled.
+# - slim: needs internet at runtime to fetch atomic/emu data on first use
+# - full: bundles atomic-red-team + adversary-emulation-plans (offline-capable, ~2x size)
+variant: slim
+
+# -- Number of replicas. Caldera writes in-process state to data/ + conf/local.yml,
+# so this MUST stay 1. The deploymentStrategy below also enforces Recreate.
+replicaCount: 1
+
+# -- Recreate-only strategy because the PVC is RWO. Don't change unless you've
+# externalized session state and migrated data/ to a shared volume.
+deploymentStrategy: Recreate
+
+# -- Pod-level resource requests/limits. Caldera is moderately memory-hungry
+# during agent compilation (sandcat) and SAML plugin init.
+resources:
+  requests:
+    cpu: 250m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi
+
+# -- Persistence. Caldera's data/ directory holds the object store, results,
+# generated keys, and (most critically) conf/local.yml's encryption_key.
+# Lose this PVC and you regenerate the encryption key, which breaks every
+# deployed agent's encrypted contact channel.
+persistence:
+  enabled: true
+  size: 50Gi
+  # OpenEBS ZFS on bumble in our deployment. Set to whatever your cluster offers.
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  # Whether to wire the data/ skeleton seed initContainer. Disable only if
+  # you're mounting a pre-seeded volume.
+  seedInitContainer:
+    enabled: true
+    # Image used by the init container — needs `cp -r` and `test`.
+    image:
+      repository: busybox
+      tag: "1.36"
+      pullPolicy: IfNotPresent
+
+# -- Caldera config. The encryption_key, red/blue API keys, and SAML
+# settings.json are loaded from the secret named below. Provision via SOPS.
+config:
+  # Name of the Secret containing conf/local.yml overrides. The chart
+  # materializes a full runtime local.yml by merging these overrides onto
+  # the image-baked conf/default.yml.
+  secretName: caldera-config
+  # Whether to mount conf/local.yml from the Secret. Disable for ephemeral
+  # dev where you want Caldera to auto-generate keys on first start.
+  mountConfig: true
+  # If saml plugin is enabled, the Secret must also contain `settings.json`
+  # which mounts at plugins/saml/conf/settings.json.
+  samlSettingsKey: settings.json
+
+# -- Service exposure inside the cluster. The Tailscale operator picks up the
+# annotations and creates an external proxy StatefulSet that exposes this
+# Service on the tailnet at the chosen hostname.
+service:
+  type: ClusterIP
+  port: 8888
+  # Tailscale operator integration. Set hostname to the tailnet name you want.
+  # If your cluster's ProxyClass is named differently, override proxyClass.
+  tailscale:
+    enabled: false
+    hostname: caldera
+    proxyClass: ""
+    # Set to true once your tailnet has issued a *.ts.net cert and the
+    # operator has been upgraded for HTTPS. Default keeps it HTTP because
+    # most Tailscale operator deployments don't expose HTTPS yet.
+    https: false
+
+# -- Optional NGINX Ingress with cert-manager for a real LE cert. Use this
+# when the tailnet operator's HTTP-only proxy is paired with an Ingress
+# controller doing TLS termination via DNS-01.
+ingress:
+  enabled: false
+  className: nginx
+  # Hostname must match an A record (or DNS-01-issuable wildcard) you own.
+  host: caldera.example.com
+  # cert-manager Issuer reference. The Issuer itself is provisioned out of band.
+  certManager:
+    clusterIssuer: letsencrypt-prod
+  annotations: {}
+  tls:
+    enabled: true
+    secretName: caldera-tls
+
+# -- NetworkPolicies. Enable in any environment where you don't fully trust
+# your namespace tenants.
+networkPolicy:
+  enabled: true
+  # Namespaces (by label) allowed to reach Caldera. The tailscale operator
+  # lives in `tailscale` by default; cert-manager in `cert-manager`.
+  allowedIngressNamespaces:
+    - name: tailscale
+      labelKey: kubernetes.io/metadata.name
+    - name: kube-system
+      labelKey: kubernetes.io/metadata.name
+  # Pods within this namespace allowed to reach Caldera (for prom-scrape etc).
+  allowedIngressPodLabels: []
+
+# -- Plugins enabled at startup. Consult conf/default.yml for the canonical list.
+# `saml` requires the patched plugin submodule + xmlsec native libs.
+plugins:
+  - access
+  - atomic
+  - compass
+  - debrief
+  - fieldmanual
+  - gameboard
+  - manx
+  - response
+  - sandcat
+  - stockpile
+  - training
+# Add `saml` once you've populated plugins/saml in the image with our v5-compat
+# fork (Phase 3).
+
+# -- Login handler. Override to plugins.saml.app.saml_login_handler in Phase 3.
+authLoginHandlerModule: ""
+
+# -- Container ports exposed inside the pod. Don't enable everything — narrower
+# attack surface and clearer NetworkPolicy match. The defaults expose only the
+# HTTP UI (8888) and TCP/UDP/WebSocket contact channels.
+ports:
+  http: 8888
+  contactTcp: 7010
+  contactUdp: 7011
+  contactWs: 7012
+  # Set true to expose the Caldera-side DNS contact server. Most labs don't.
+  contactDnsEnabled: false
+  contactDns: 8853
+  # Set true to expose the SSH contact server.
+  contactSshEnabled: false
+  contactSsh: 8022
+  # Set true to expose the FTP contact server.
+  contactFtpEnabled: false
+  contactFtp: 2222
+
+# -- Pod scheduling. By default the workload runs on bumble (the OpenEBS
+# storage node) so PVC volume affinity matches.
+nodeSelector:
+  kubernetes.io/hostname: bumble
+
+tolerations: []
+affinity: {}
+
+# -- ServiceAccount. Created by default; set `create: false` to use an existing one.
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# -- Pod security context. Caldera bakes in /usr/src/app at build time and writes
+# only to /usr/src/app/data via the PVC. Run as a non-root user when possible.
+podSecurityContext:
+  fsGroup: 1000
+containerSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false # Caldera writes to /usr/src/app/conf/local.yml at runtime
+
+# -- Optional probes. Caldera's authenticated API health endpoint returns 401
+# in current v5 builds; the UI root is a better unauthenticated liveness gate.
+livenessProbe:
+  enabled: true
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+readinessProbe:
+  enabled: true
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# -- Extra labels merged onto every resource.
+extraLabels:
+  app.kubernetes.io/component: server
+  tinyland.fork: "true"
+
+# -- Pod annotations. Wrap your tofu/CD pipeline with `checksum/config`
+# computed from the SOPS-decrypted Secret hash to roll the pod on config
+# changes — Helm templates can't see Secret content, so the upstream
+# wrapper has to provide it. Example:
+#
+#   podAnnotations:
+#     checksum/config: ${sha256(local.local_yml_decrypted)}
+#
+# Massageithaca uses the same pattern in tofu/stacks/massageithaca/main.tf.
+podAnnotations: {}
