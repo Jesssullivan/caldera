@@ -59,8 +59,9 @@ persistence:
 # -- Caldera config. The encryption_key, red/blue API keys, and SAML
 # settings.json are loaded from the secret named below. Provision via SOPS.
 config:
-  # Name of the Secret containing conf/local.yml. The Secret must have a
-  # key named `local.yml` whose value is the full Caldera config YAML.
+  # Name of the Secret containing conf/local.yml overrides. The chart
+  # materializes a full runtime local.yml by merging these overrides onto
+  # the image-baked conf/default.yml.
   secretName: caldera-config
   # Whether to mount conf/local.yml from the Secret. Disable for ephemeral
   # dev where you want Caldera to auto-generate keys on first start.
@@ -182,11 +183,12 @@ containerSecurityContext:
       - ALL
   readOnlyRootFilesystem: false # Caldera writes to /usr/src/app/conf/local.yml at runtime
 
-# -- Optional probes. Caldera's web UI returns 200 on /api/v2/health when reachable.
+# -- Optional probes. Caldera's authenticated API health endpoint returns 401
+# in current v5 builds; the UI root is a better unauthenticated liveness gate.
 livenessProbe:
   enabled: true
   httpGet:
-    path: /api/v2/health
+    path: /
     port: http
   initialDelaySeconds: 60
   periodSeconds: 30
@@ -195,7 +197,7 @@ livenessProbe:
 readinessProbe:
   enabled: true
   httpGet:
-    path: /api/v2/health
+    path: /
     port: http
   initialDelaySeconds: 15
   periodSeconds: 10
