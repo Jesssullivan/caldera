@@ -1,0 +1,156 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "caldera.fullname" . }}
+  labels: {{- include "caldera.labels" . | nindent 4 }}
+spec:
+  # Caldera writes in-process state. Multi-replica is unsafe.
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: {{ .Values.deploymentStrategy }}
+  selector:
+    matchLabels: {{- include "caldera.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "caldera.selectorLabels" . | nindent 8 }}
+        {{- with .Values.extraLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- if .Values.podAnnotations }}
+      annotations: {{- toYaml .Values.podAnnotations | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "caldera.serviceAccountName" . }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if and .Values.persistence.enabled .Values.persistence.seedInitContainer.enabled }}
+      initContainers:
+        - name: seed-data
+          # Mirror the upstream data/ skeleton onto the PVC on first mount.
+          # Caldera refuses to start if data/ subdirs are missing; this
+          # keeps the volume self-healing across image bumps without
+          # clobbering user-generated state.
+          image: "{{ .Values.persistence.seedInitContainer.image.repository }}:{{ .Values.persistence.seedInitContainer.image.tag }}"
+          imagePullPolicy: {{ .Values.persistence.seedInitContainer.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              # Required subdirs from upstream data/ — keep in sync with
+              # https://github.com/mitre/caldera/tree/master/data
+              for d in abilities adversaries facts objectives payloads \
+                       planners results sources backup; do
+                mkdir -p "/data/${d}"
+              done
+              # Permissions matching the runtime container's UID/GID.
+              chown -R {{ .Values.containerSecurityContext.runAsUser }}:{{ .Values.containerSecurityContext.runAsGroup }} /data || true
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+      {{- end }}
+      containers:
+        - name: caldera
+          image: {{ include "caldera.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.ports.http }}
+              protocol: TCP
+            - name: contact-tcp
+              containerPort: {{ .Values.ports.contactTcp }}
+              protocol: TCP
+            - name: contact-udp
+              containerPort: {{ .Values.ports.contactUdp }}
+              protocol: UDP
+            - name: contact-ws
+              containerPort: {{ .Values.ports.contactWs }}
+              protocol: TCP
+            {{- if .Values.ports.contactDnsEnabled }}
+            - name: contact-dns
+              containerPort: {{ .Values.ports.contactDns }}
+              protocol: UDP
+            {{- end }}
+            {{- if .Values.ports.contactSshEnabled }}
+            - name: contact-ssh
+              containerPort: {{ .Values.ports.contactSsh }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.ports.contactFtpEnabled }}
+            - name: contact-ftp
+              containerPort: {{ .Values.ports.contactFtp }}
+              protocol: TCP
+            {{- end }}
+          env:
+            - name: TZ
+              value: UTC
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.livenessProbe.httpGet.path }}
+              port: {{ .Values.livenessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessProbe.httpGet.path }}
+              port: {{ .Values.readinessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            {{- if .Values.persistence.enabled }}
+            - name: data
+              mountPath: /usr/src/app/data
+            {{- end }}
+            {{- if .Values.config.mountConfig }}
+            - name: config
+              mountPath: /usr/src/app/conf/local.yml
+              subPath: local.yml
+              readOnly: true
+            {{- if eq (default "" .Values.authLoginHandlerModule) "plugins.saml.app.saml_login_handler" }}
+            - name: config
+              mountPath: /usr/src/app/plugins/saml/conf/{{ .Values.config.samlSettingsKey }}
+              subPath: {{ .Values.config.samlSettingsKey }}
+              readOnly: true
+            {{- end }}
+            {{- end }}
+      volumes:
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "caldera.fullname" . }}-data
+        {{- end }}
+        {{- if .Values.config.mountConfig }}
+        - name: config
+          secret:
+            secretName: {{ include "caldera.configSecretName" . }}
+        {{- end }}

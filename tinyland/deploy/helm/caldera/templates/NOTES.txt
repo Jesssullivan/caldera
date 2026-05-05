@@ -1,0 +1,50 @@
+Tinyland Caldera deployed.
+
+Release:    {{ .Release.Name }}
+Namespace:  {{ .Release.Namespace }}
+Image:      {{ include "caldera.image" . }}
+Variant:    {{ .Values.variant }}
+
+{{- if .Values.persistence.enabled }}
+
+Persistence:
+  PVC:           {{ include "caldera.fullname" . }}-data
+  Storage class: {{ default "(default)" .Values.persistence.storageClass }}
+  Size:          {{ .Values.persistence.size }}
+
+  ⚠  This PVC holds conf/local.yml's encryption_key. Backups are
+     mandatory if you want agent contact channels to survive recovery.
+{{- end }}
+
+{{- if .Values.service.tailscale.enabled }}
+
+Tailnet exposure:
+  Hostname:    {{ .Values.service.tailscale.hostname }}.<your-tailnet>.ts.net
+  ProxyClass:  {{ default "(default)" .Values.service.tailscale.proxyClass }}
+  HTTPS:       {{ .Values.service.tailscale.https }}
+{{- end }}
+
+{{- if .Values.ingress.enabled }}
+
+Ingress (cert-manager):
+  Host:        https://{{ .Values.ingress.host }}
+  ClusterIssuer: {{ .Values.ingress.certManager.clusterIssuer }}
+{{- end }}
+
+{{- if has "saml" .Values.plugins }}
+
+SAML auth:
+  Login handler: {{ .Values.authLoginHandlerModule }}
+  Pre-create red/blue Caldera accounts in conf/local.yml's `users:` block;
+  IdP must release a `username` AttributeStatement matching one of those
+  account names. Check tinyland/docs/saml-troubleshooting.md if SSO falls
+  through to the default login page.
+{{- end }}
+
+Default login (if no SAML):
+  Account: red — credentials live in the config Secret's local.yml under `users:`.
+
+To check the rollout:
+
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "caldera.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} logs -f deploy/{{ include "caldera.fullname" . }}
