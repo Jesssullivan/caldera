@@ -1,0 +1,202 @@
+name: Build Tinyland Caldera Image
+
+# Tinyland-specific build pipeline. Disjoint from upstream's
+# .github/workflows/publish_docker_image.yml — both can co-exist; that one
+# pushes ghcr.io/mitre/caldera:latest, this one pushes ghcr.io/tinyland-inc/caldera.
+#
+# Pattern cribbed from tinyland-inc/GloriousFlywheel/.github/workflows/build-image.yml.
+# Uses self-hosted runners (tinyland-dind for buildx, tinyland-nix for flake).
+#
+# Linear: TIN-971
+
+on:
+  push:
+    branches:
+      - master
+      - "tinyland/**"
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "requirements.txt"
+      - ".gitmodules"
+      - "app/**"
+      - "conf/**"
+      - "server.py"
+      - "static/**"
+      - "templates/**"
+      - "plugins/**"
+      - ".github/workflows/build-tinyland-image.yml"
+  pull_request:
+    branches:
+      - master
+      - "tinyland/**"
+    paths:
+      - "Dockerfile"
+      - "requirements.txt"
+      - ".gitmodules"
+      - "app/**"
+      - "plugins/**"
+      - ".github/workflows/build-tinyland-image.yml"
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: "Image variant"
+        required: true
+        default: "slim"
+        type: choice
+        options:
+          - slim
+          - full
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write # cosign keyless via Sigstore OIDC
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: tinyland-inc/caldera
+  # Phase 1 ships slim by default — fast iteration, network-attached deploy.
+  # Bump to full once we want offline atomic/emu support (separate Linear).
+  VARIANT: ${{ github.event_name == 'workflow_dispatch' && inputs.variant || 'slim' }}
+
+jobs:
+  build:
+    name: Build & sign Caldera image
+    runs-on: tinyland-dind
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Compute image tags
+        id: tags
+        shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          IS_MASTER: ${{ github.ref == 'refs/heads/master' }}
+        run: |
+          set -euo pipefail
+          ref_slug="${REF_NAME//\//-}"
+          short_sha="${SHA::12}"
+          base="${REGISTRY}/${IMAGE_NAME}"
+          {
+            echo "tags<<EOF"
+            echo "${base}:${VARIANT}-${short_sha}"
+            echo "${base}:${VARIANT}-${ref_slug}"
+            if [[ "${IS_MASTER}" == "true" ]]; then
+              echo "${base}:${VARIANT}-master"
+              if [[ "${VARIANT}" == "full" ]]; then
+                echo "${base}:latest"
+              fi
+            fi
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          build-args: |
+            VARIANT=${{ env.VARIANT }}
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha,scope=caldera-${{ env.VARIANT }}
+          cache-to: type=gha,mode=max,scope=caldera-${{ env.VARIANT }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.description=Tinyland fork of MITRE Caldera (${{ env.VARIANT }} variant) with patched SAML plugin support and xmlsec native libs.
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=caldera
+            org.opencontainers.image.version=${{ env.VARIANT }}-${{ github.sha }}
+            org.opencontainers.image.licenses=Apache-2.0
+            tinyland.fork=true
+            tinyland.upstream=https://github.com/mitre/caldera
+
+      - name: Restore Trivy cache
+        if: github.event_name != 'pull_request'
+        uses: actions/cache@v5
+        with:
+          path: ${{ github.workspace }}/.cache/trivy
+          key: trivy-cache-${{ runner.os }}-${{ hashFiles('Dockerfile', 'requirements.txt') }}
+          restore-keys: |
+            trivy-cache-${{ runner.os }}-
+
+      - name: Scan image for CRITICAL vulnerabilities
+        if: github.event_name != 'pull_request'
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          cache: false
+          cache-dir: ${{ github.workspace }}/.cache/trivy
+          format: table
+          exit-code: "1"
+          severity: CRITICAL
+          ignore-unfixed: true
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${DIGEST_REF}"
+          cosign verify \
+            --certificate-identity-regexp "https://github.com/.+/caldera/\.github/workflows/build-tinyland-image\.yml@.+" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${DIGEST_REF}"
+
+      - name: Summarize image
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Caldera image — variant: ${VARIANT}"
+            echo
+            echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
+            echo "- Tags:"
+            while IFS= read -r tag; do
+              [[ -n "$tag" ]] && echo "  - \`$tag\`"
+            done <<< "${{ steps.tags.outputs.tags }}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  flake-check:
+    name: Validate flake
+    runs-on: tinyland-nix
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: tinyland-inc/GloriousFlywheel/.github/actions/setup-flywheel@main
+        with:
+          attic-public-key: ""
+
+      - uses: tinyland-inc/GloriousFlywheel/.github/actions/nix-job@main
+        with:
+          command: |
+            nix flake check --no-build --print-build-logs
