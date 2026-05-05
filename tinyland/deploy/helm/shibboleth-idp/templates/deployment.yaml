@@ -52,22 +52,29 @@ spec:
           {{- end }}
           # IdP startup is heavy: Jetty + Shibboleth + module wiring takes
           # 30-60s on cold start. Generous startupProbe so kubelet doesn't
-          # kill the pod mid-boot. Liveness/readiness use /idp/status which
-          # the IdP exposes once Shibboleth's runtime is up.
+          # kill the pod mid-boot.
+          #
+          # Probe path: /idp/ (the IdP's branding/landing page) returns 200
+          # once Spring is up and serving. /idp/status would be the more
+          # rigorous health check but it's IP-restricted to 127.0.0.1 by
+          # default (idp.properties: idp.status.accessPolicy=AccessByIPAddress
+          # with localhost-only allowlist), so probing it from kubelet on
+          # the node IP returns 500. Tightening the access policy is a
+          # follow-up if we want a richer probe target.
           startupProbe:
             httpGet:
-              path: /idp/status
+              path: /idp/
               port: http
             failureThreshold: 30
             periodSeconds: 5
           readinessProbe:
             httpGet:
-              path: /idp/status
+              path: /idp/
               port: http
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /idp/status
+              path: /idp/
               port: http
             periodSeconds: 30
             failureThreshold: 3
