@@ -1,0 +1,141 @@
+# Gitleaks config for the Tinyland fork of MITRE Caldera.
+#
+# This repo is a PUBLIC fork. Every commit is visible to the world. The rules
+# below extend gitleaks's default ruleset and add a few Caldera/Tinyland-
+# specific patterns. The `allowlist` block carves out template / example
+# files that intentionally contain placeholder secrets (settings.example.json,
+# upstream Caldera test fixtures with embedded SAML responses, etc.).
+#
+# Run locally:
+#   gitleaks detect --redact --verbose
+# Run on commit (auto via .pre-commit-config.yaml):
+#   pre-commit run gitleaks --all-files
+#
+# Reference: https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+
+[extend]
+# Inherit gitleaks's full default ruleset.
+useDefault = true
+
+# =============================================================================
+# Tinyland-specific custom rules
+# =============================================================================
+
+[[rules]]
+id = "tinyland-cloudflare-api-token"
+description = "Cloudflare API token (cfat_ prefix)"
+regex = '''cfat_[A-Za-z0-9]{40,}'''
+keywords = ["cfat_"]
+tags = ["cloudflare", "api", "tinyland"]
+
+[[rules]]
+id = "tinyland-porkbun-api-key"
+description = "Porkbun API key (pk1_/sk1_ prefix)"
+regex = '''(pk1|sk1)_[A-Za-z0-9]{60,}'''
+keywords = ["pk1_", "sk1_"]
+tags = ["porkbun", "api", "tinyland"]
+
+[[rules]]
+id = "tinyland-age-secret-key"
+description = "age secret key (AGE-SECRET-KEY-1...)"
+regex = '''AGE-SECRET-KEY-1[A-Z0-9]{58,}'''
+keywords = ["AGE-SECRET-KEY-1"]
+tags = ["age", "sops", "tinyland"]
+
+[[rules]]
+id = "tinyland-tailscale-auth-key"
+description = "Tailscale auth key"
+regex = '''tskey-(auth|api|client)-[A-Za-z0-9-]{40,}'''
+keywords = ["tskey-"]
+tags = ["tailscale", "tinyland"]
+
+[[rules]]
+id = "tinyland-caldera-encryption-key"
+# Caldera's encryption_key is a 32-char base64-ish string. Block any plaintext
+# encryption_key value in YAML/JSON outside the allowlisted templates.
+description = "Caldera encryption_key value (plaintext)"
+regex = '''encryption_key:\s*['"]?[A-Za-z0-9+/=_-]{16,}['"]?'''
+keywords = ["encryption_key"]
+tags = ["caldera", "tinyland"]
+[rules.allowlist]
+paths = [
+  '''.*\.example\..*''',
+  '''.*template.*''',
+  '''.*\.md$''',
+  '''upstream/.*''',
+  '''(^|/)conf/default\.yml$''',
+]
+
+[[rules]]
+id = "tinyland-caldera-api-key"
+description = "Caldera api_key_red / api_key_blue value (plaintext)"
+regex = '''api_key_(red|blue):\s*['"]?[A-Za-z0-9_-]{16,}['"]?'''
+keywords = ["api_key_red", "api_key_blue"]
+tags = ["caldera", "tinyland"]
+[rules.allowlist]
+paths = [
+  '''.*\.example\..*''',
+  '''.*template.*''',
+  '''.*\.md$''',
+  '''(^|/)conf/default\.yml$''',
+  # Upstream tests embed real-looking but fake API keys.
+  '''(^|/)tests?/test_.*\.py$''',
+]
+
+# =============================================================================
+# Repo-wide allowlist
+# =============================================================================
+# Files that intentionally contain secret-shaped content but are templates,
+# upstream tests, or documentation. Be deliberate when adding entries here.
+
+[allowlist]
+description = "Tinyland fork — template + upstream test allowlist"
+
+paths = [
+  # Tinyland templates / examples — every secret value is a placeholder.
+  '''(^|/)tinyland/deploy/saml/settings\.example\.json$''',
+  '''(^|/)tinyland/docs/.*\.md$''',
+
+  # Upstream Caldera test fixtures — embed deliberately-public Okta dev-tenant
+  # SAML responses (signed by an Okta dev cert). These are example test data,
+  # not real production secrets.
+  '''(^|/)plugins/saml/tests?/.*$''',
+
+  # Upstream Caldera contact-channel tests carry intentionally-malformed
+  # GitHub PATs to exercise token-format validation. They are NOT real
+  # tokens — gitleaks pattern-matches the shape `gh[ps]_[A-Za-z0-9]{36}`.
+  '''(^|/)tests/contacts/test_contact_gist\.py$''',
+
+  # Upstream Caldera ships an unprotected RSA private key for the bundled
+  # `ssl` plugin's HAProxy TLS termination — it is intentionally insecure
+  # ("default cert, replace before deploying" per upstream docs) and not a
+  # secret in our deployment (we terminate at ingress-nginx with an LE cert
+  # via cert-manager; the in-image key is never used).
+  '''(^|/)conf/key\.pem$''',
+
+  # Upstream Caldera's bundled default config has placeholder values like
+  # "REPLACE_WITH_RANDOM_VALUE" and "ADMIN123" that gitleaks may pattern-match.
+  '''(^|/)conf/default\.yml$''',
+  '''(^|/)conf/payloads\.yml$''',
+
+  # Build artifacts.
+  '''(^|/)plugins/magma/dist/.*''',
+  '''(^|/)node_modules/.*''',
+  '''(^|/)\.calderavenv/.*''',
+]
+
+# Specific commits or known-public test material. Add an entry only after
+# confirming the value is intentionally publishable.
+commits = []
+
+# Specific regex patterns to allow globally (e.g., placeholder hashes used
+# in upstream documentation).
+regexes = [
+  # Upstream Caldera's `ADMIN123` / `BLUEADMIN123` placeholder API keys
+  # appear in conf/default.yml and several docs.
+  '''(?i)(ADMIN123|BLUEADMIN123)''',
+  # Upstream Caldera's `REPLACE_WITH_*` placeholders.
+  '''REPLACE_WITH_[A-Z_]+''',
+  # SHA-256 hashes appear inline in upstream stockpile abilities; not secrets.
+  '''sha256:[a-f0-9]{64}''',
+]
