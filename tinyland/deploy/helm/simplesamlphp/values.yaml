@@ -29,15 +29,28 @@ resources:
 idp:
   entityId: "https://idp-001.tinyland.dev/saml2/idp/metadata.php"
 
-# -- Pre-configured user. The username here must match a user account
-# pre-created in Caldera's conf/local.yml (e.g. `red`). The IdP releases
-# this as the `username` SAML attribute.
+# -- Pre-configured user. Legacy single-user knob; prefer `users:` below
+# for multi-user deploys. Kept for backwards compatibility.
 testUser:
   username: red
   email: red@caldera.tinyland.dev
-  # Plaintext password is fine in the test image; production uses a
-  # real Shibboleth IdP with proper account backends.
   password: "test"
+
+# -- Custom IdP users. When non-empty, generates a ConfigMap that overrides
+# the kristophjunge image's authsources.php + saml20-idp-hosted.php, so
+# each user releases a `username` attribute matching their login and the
+# IdP promotes that attribute to the SAML NameID via saml:AttributeNameID.
+# This is required for the caldera SP plugin to match the IdP-released
+# identity to a pre-created caldera account.
+users:
+  - username: red
+    password: test
+    email: red@caldera.tinyland.dev
+    affiliation: red-team
+  - username: blue
+    password: test
+    email: blue@caldera.tinyland.dev
+    affiliation: blue-team
 
 # -- The SP entityId(s) this IdP issues assertions for. Must match
 # Caldera's sp.entityId in settings.json.

@@ -62,15 +62,38 @@ spec:
           {{- with .Values.resources }}
           resources: {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- if .Values.config.secretName }}
+          {{- if or .Values.config.secretName .Values.users }}
           volumeMounts:
+            {{- if .Values.config.secretName }}
             - name: config
               mountPath: {{ .Values.config.mountPath }}
               readOnly: true
+            {{- end }}
+            {{- if .Values.users }}
+            - name: users-config
+              mountPath: /var/www/simplesamlphp/config/authsources.php
+              subPath: authsources.php
+              readOnly: true
+            - name: users-config
+              mountPath: /var/www/simplesamlphp/metadata/saml20-idp-hosted.php
+              subPath: saml20-idp-hosted.php
+              readOnly: true
+            - name: users-config
+              mountPath: /var/www/simplesamlphp/metadata/saml20-sp-remote.php
+              subPath: saml20-sp-remote.php
+              readOnly: true
+            {{- end }}
           {{- end }}
-      {{- if .Values.config.secretName }}
+      {{- if or .Values.config.secretName .Values.users }}
       volumes:
+        {{- if .Values.config.secretName }}
         - name: config
           secret:
             secretName: {{ .Values.config.secretName }}
+        {{- end }}
+        {{- if .Values.users }}
+        - name: users-config
+          configMap:
+            name: {{ include "simplesamlphp.fullname" . }}-users
+        {{- end }}
       {{- end }}

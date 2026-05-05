@@ -1,0 +1,58 @@
+{{- if .Values.users }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "simplesamlphp.fullname" . }}-users
+  labels: {{- include "simplesamlphp.labels" . | nindent 4 }}
+data:
+  authsources.php: |
+    <?php
+    $config = array(
+        'admin' => array('core:AdminPassword'),
+        'example-userpass' => array(
+            'exampleauth:UserPass',
+            {{- range $u := .Values.users }}
+            '{{ $u.username }}:{{ $u.password }}' => array(
+                'uid' => array('{{ $u.username }}'),
+                'username' => array('{{ $u.username }}'),
+                'eduPersonAffiliation' => array('{{ default "users" $u.affiliation }}'),
+                'email' => '{{ $u.email }}',
+            ),
+            {{- end }}
+        ),
+    );
+  saml20-idp-hosted.php: |
+    <?php
+    // The kristophjunge image generates transient NameIDs by default.
+    // Promote each user's `username` attribute to the SAML NameID via
+    // saml:AttributeNameID so the caldera SP receives nameid="red"
+    // instead of an opaque random string. Required for the plugin's
+    // _get_saml_login_username (which prefers nameid) to match a
+    // pre-created caldera account.
+    $metadata['__DYNAMIC:1__'] = array(
+        'host' => '__DEFAULT__',
+        'privatekey' => 'server.pem',
+        'certificate' => 'server.crt',
+        'auth' => 'example-userpass',
+        'authproc' => array(
+            100 => array(
+                'class' => 'saml:AttributeNameID',
+                'attribute' => 'username',
+                'Format' => 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified',
+            ),
+        ),
+    );
+  saml20-sp-remote.php: |
+    <?php
+    // Force NameIDFormat=unspecified on the SP entry so the IdP issues
+    // unspecified-format NameIDs even for IdP-initiated flows that
+    // don't carry a NameIDPolicy from the SP. Without this, IdP-init
+    // defaults to transient and AttributeNameID's substitution doesn't
+    // fire — caldera then sees a random string as app_username and
+    // rejects with "not configured for login".
+    $metadata[getenv('SIMPLESAMLPHP_SP_ENTITY_ID')] = array(
+        'AssertionConsumerService' => getenv('SIMPLESAMLPHP_SP_ASSERTION_CONSUMER_SERVICE'),
+        'SingleLogoutService' => getenv('SIMPLESAMLPHP_SP_SINGLE_LOGOUT_SERVICE'),
+        'NameIDFormat' => 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified',
+    );
+{{- end }}
