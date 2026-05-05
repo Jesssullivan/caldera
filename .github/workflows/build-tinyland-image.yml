@@ -67,7 +67,10 @@ env:
 jobs:
   build:
     name: Build & sign Caldera image
-    runs-on: tinyland-dind
+    # Runner scoped to Jesssullivan/* repos. The tinyland-* lanes are bound
+    # to the tinyland-inc org and won't dispatch here. If/when the fork
+    # moves under tinyland-inc, swap to `tinyland-dind`.
+    runs-on: jesssullivan-dind
 
     steps:
       - name: Checkout (with submodules)
@@ -188,7 +191,7 @@ jobs:
 
   flake-check:
     name: Validate flake
-    runs-on: tinyland-nix
+    runs-on: jesssullivan-nix
     steps:
       - uses: actions/checkout@v6
 
