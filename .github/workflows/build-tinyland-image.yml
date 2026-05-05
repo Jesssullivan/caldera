@@ -197,6 +197,10 @@ jobs:
 
   flake-check:
     name: Validate flake
+    # Keep this manual until the self-hosted tinyland-nix runner has
+    # working Nix store permissions for Actions jobs. The image build
+    # remains the PR/push gate for this fork.
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: tinyland-nix
     steps:
       - uses: actions/checkout@v6
