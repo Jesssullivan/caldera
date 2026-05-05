@@ -87,9 +87,14 @@ RUN if [ ! -d "/usr/src/app/plugins/emu/data/adversary-emulation-plans" ] && [ "
             /usr/src/app/plugins/emu/data/adversary-emulation-plans;                  \
 fi
 
-# Download emu payloads
-# emu doesn't seem capable of running this itself - always download
-RUN cd /usr/src/app/plugins/emu; ./download_payloads.sh
+# Download emu payloads only for the full/offline image. The slim image is
+# the default CI/deploy variant and should not block on large external EMU
+# payload mirrors.
+RUN if [ "$VARIANT" = "full" ]; then \
+        cd /usr/src/app/plugins/emu; ./download_payloads.sh; \
+    else \
+        echo "Skipping EMU payload downloads for slim image"; \
+    fi
 
 # The commands above (git clone) will generate *huge* .git folders - remove them
 RUN (find . -type d -name ".git") | xargs rm -rf
