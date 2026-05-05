@@ -121,22 +121,23 @@ RUN cd /opt/shibboleth-identity-provider \
         "-Didp.keystore.${PWORD}=${KEYSTORE_RAND}" \
         -Didp.no.tidy=true
 
-# Jetty base layout. The IdP distribution ships a jetty-base sample under
-# /opt/shibboleth-idp/jetty-base; we copy it out and add it to JETTY_BASE.
-RUN cp -r /opt/shibboleth-idp/jetty-base /opt/jetty-base \
- && cd /opt/jetty-base \
- && java -jar /opt/jetty-home/start.jar --add-modules=ext,resources,http,deploy,annotations,jsp \
-            --approve-all-licenses
+# Jetty base creation deferred to runtime via entrypoint.sh. IdP 5.x no
+# longer ships a jetty-base sample under /opt/shibboleth-idp (that was
+# a 4.x convention) — we build it on first container start. This keeps
+# image-bake speed up and lets us iterate on the Jetty layout without
+# rebuilding the whole image.
+COPY entrypoint.sh /usr/local/bin/idp-entrypoint.sh
+RUN chmod +x /usr/local/bin/idp-entrypoint.sh \
+ && mkdir -p /opt/jetty-base
 
 # Non-root runtime — the IdP doesn't need privileges.
 RUN groupadd --system --gid 1001 shibd \
  && useradd  --system --uid 1001 --gid shibd --no-create-home shibd \
- && chown -R shibd:shibd /opt/shibboleth-idp /opt/jetty-base
+ && chown -R shibd:shibd /opt/shibboleth-idp /opt/jetty-base /opt/jetty-home
 
 USER shibd:shibd
 
 EXPOSE 8080
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["java", "-jar", "/opt/jetty-home/start.jar", \
-     "jetty.home=/opt/jetty-home", "jetty.base=/opt/jetty-base"]
+CMD ["/usr/local/bin/idp-entrypoint.sh"]
