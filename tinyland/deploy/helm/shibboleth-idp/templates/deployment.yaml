@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "shibboleth-idp.fullname" . }}
+  labels: {{- include "shibboleth-idp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: {{- include "shibboleth-idp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "shibboleth-idp.selectorLabels" . | nindent 8 }}
+        {{- with .Values.extraLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "shibboleth-idp.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: idp
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: JAVA_OPTS
+              value: {{ .Values.javaOpts | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          # IdP startup is heavy: Jetty + Shibboleth + module wiring takes
+          # 30-60s on cold start. Generous startupProbe so kubelet doesn't
+          # kill the pod mid-boot. Liveness/readiness use /idp/status which
+          # the IdP exposes once Shibboleth's runtime is up.
+          startupProbe:
+            httpGet:
+              path: /idp/status
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /idp/status
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /idp/status
+              port: http
+            periodSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            # Per-deployment XML config (attribute-resolver, attribute-filter,
+            # metadata-providers, relying-party). Provided by var.idp_config
+            # via a ConfigMap; rendered by tofu from .xml templates that
+            # reference the IdP's federation peers + caldera SP entity ID.
+            {{- if .Values.idpConfig.configMapName }}
+            - name: idp-config
+              mountPath: /opt/shibboleth-idp/conf
+              readOnly: true
+            {{- end }}
+            # IdP signing + encryption keypairs + sealer keystore. Sourced
+            # from a SOPS-decrypted Secret. Overlays the throwaway material
+            # baked into the image during install.sh.
+            {{- if .Values.idpCredentials.secretName }}
+            - name: idp-credentials
+              mountPath: /opt/shibboleth-idp/credentials
+              readOnly: true
+            {{- end }}
+      volumes:
+        {{- if .Values.idpConfig.configMapName }}
+        - name: idp-config
+          configMap:
+            name: {{ .Values.idpConfig.configMapName }}
+        {{- end }}
+        {{- if .Values.idpCredentials.secretName }}
+        - name: idp-credentials
+          secret:
+            secretName: {{ .Values.idpCredentials.secretName }}
+            defaultMode: 0400
+        {{- end }}

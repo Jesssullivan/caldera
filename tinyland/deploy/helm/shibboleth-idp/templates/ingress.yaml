@@ -1,0 +1,38 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "shibboleth-idp.fullname" . }}
+  labels: {{- include "shibboleth-idp.labels" . | nindent 4 }}
+  annotations:
+    {{- if .Values.ingress.certManager.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.certManager.clusterIssuer | quote }}
+    {{- end }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName | quote }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          # Shibboleth IdP serves under /idp/. Surfacing the whole vhost
+          # (rather than just /idp/) keeps room for /metrics, /status, or
+          # other health endpoints if/when we wire them up — and matches
+          # the simplesamlphp chart's approach so the operator runbook
+          # stays consistent across IdP-001 and IdP-002.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "shibboleth-idp.fullname" . }}
+                port:
+                  name: http
+{{- end }}

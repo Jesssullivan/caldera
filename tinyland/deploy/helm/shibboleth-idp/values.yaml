@@ -1,0 +1,120 @@
+# Default values for the Shibboleth IdP 5.2 chart (IdP-002, Phase 4).
+# Replaces the SimpleSAMLphp lab IdP-001 with a production-shape
+# identity provider. Plan: tinyland/docs/plan-onprem-saml.md § Phase 4.
+
+# -- Image source. Built from tinyland/deploy/docker/shibboleth-idp/.
+# The Shibboleth Consortium does not publish an official image; we own
+# our build for public-fork hygiene.
+image:
+  repository: ghcr.io/jesssullivan/shibboleth-idp
+  tag: "5.2.1"
+  pullPolicy: IfNotPresent
+
+# -- Replicas. Shibboleth IdP is stateless on the request path (sessions
+# in cookies; persistent state in StorageService = JDBC for prod, in-memory
+# for lab). 1 replica suffices for the lab; multi-replica needs a real
+# StorageService.
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 768Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+# -- IdP identity. entityId is what the SP trusts; scope is the release
+# domain (subjectName attribute scope).
+idp:
+  entityId: "https://idp-002.tinyland.dev/idp/shibboleth"
+  scope: "caldera.tinyland.dev"
+
+# -- Per-deployment IdP config files. ConfigMap mounted over /opt/shibboleth-idp/conf:
+#   - attribute-resolver.xml — define `username` attribute, source-mapped
+#   - attribute-filter.xml   — release `username` to caldera SP only
+#   - metadata-providers.xml — consume caldera SP metadata, pin sig cert
+#   - relying-party.xml      — per-SP profile policy
+# Set configMapName to non-empty to mount; empty keeps the image's defaults.
+idpConfig:
+  configMapName: ""
+
+# -- IdP signing + encryption keypairs + sealer keystore. Secret with:
+#   - idp-signing.crt + idp-signing.key
+#   - idp-encryption.crt + idp-encryption.key
+#   - sealer.jks + sealer.kver
+# Empty disables the mount (image's throwaway bake-time keys remain in
+# place — useful for first-deploy smoke testing only).
+idpCredentials:
+  secretName: ""
+
+# -- JVM heap sizing. The image's CMD reads JAVA_OPTS from env.
+javaOpts: "-Xms256m -Xmx768m"
+
+# -- Extra container env vars (ConfigMapKeyRef, SecretKeyRef, etc.).
+extraEnv: []
+
+# -- Service exposure inside the cluster.
+service:
+  type: ClusterIP
+  port: 8080
+
+# -- Ingress with cert-manager for the public LE-cert path.
+ingress:
+  enabled: true
+  className: nginx
+  host: idp-002.tinyland.dev
+  certManager:
+    clusterIssuer: letsencrypt-prod
+  tls:
+    enabled: true
+    secretName: shibboleth-idp-tls
+  annotations: {}
+
+# -- NetworkPolicy. Default-deny + allow only from listed namespaces / pods.
+networkPolicy:
+  enabled: true
+  allowedIngressNamespaces:
+    - name: ingress-nginx
+      labelKey: kubernetes.io/metadata.name
+    - name: tailscale
+      labelKey: kubernetes.io/metadata.name
+    - name: kube-system
+      labelKey: kubernetes.io/metadata.name
+  allowedIngressPodLabels: []
+
+# -- ServiceAccount.
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# -- Pod placement. The IdP is stateless (no PVC), so it can ride any node
+# that has capacity.
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# -- Pod-level securityContext. IdP runs non-root in the image (uid 1001).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+
+# -- Container-level securityContext.
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop: ["ALL"]
+
+# -- Pod annotations (e.g., reload-on-config-change checksums).
+podAnnotations: {}
+
+# -- Extra labels merged into both pod template + chart-managed objects.
+extraLabels: {}
+
+# -- Standard chart knobs.
+nameOverride: ""
+fullnameOverride: ""

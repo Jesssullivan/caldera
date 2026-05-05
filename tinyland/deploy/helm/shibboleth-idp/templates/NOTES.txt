@@ -1,0 +1,24 @@
+Shibboleth IdP 5.2 deployed (IdP-002).
+
+Release:    {{ .Release.Name }}
+Namespace:  {{ .Release.Namespace }}
+
+IdP entityId:    {{ .Values.idp.entityId }}
+IdP metadata:    https://{{ .Values.ingress.host }}/idp/shibboleth
+IdP SSO URL:     https://{{ .Values.ingress.host }}/idp/profile/SAML2/Redirect/SSO
+IdP scope:       {{ .Values.idp.scope }}
+
+{{- if .Values.ingress.enabled }}
+
+Health check:    https://{{ .Values.ingress.host }}/idp/status
+{{- end }}
+
+Pair this IdP with Caldera by populating plugins/saml/conf/settings.json
+with the values fetched from this IdP's metadata. The Phase 4 cutover
+plan in tinyland/docs/plan-onprem-saml.md walks the metadata-fetch
+helper at tinyland/scripts/fetch-idp-metadata.sh.
+
+When ready, tighten the SP's security block:
+    "wantAssertionsEncrypted": true   (was false for the SimpleSAMLphp lab)
+The IdP encrypts assertions to the SP's encryption-key cert (separate
+keypair from the signing key — see tummycrypt/credentials/caldera-sp-keys.yaml).
