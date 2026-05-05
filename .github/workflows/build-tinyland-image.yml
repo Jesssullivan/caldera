@@ -173,6 +173,26 @@ jobs:
           exit-code: "1"
           severity: CRITICAL
           ignore-unfixed: true
+          # Caldera is an adversary-emulation platform. Two classes of paths
+          # are upstream-managed and known to carry "vulnerable" code we DO
+          # NOT want to mask in production images but explicitly accept here:
+          #
+          # 1. /usr/local/go/** — Go toolchain pinned by the upstream
+          #    Dockerfile (currently go1.25.0; CVE-2025-68121 fixed in
+          #    1.25.7). When mitre/caldera bumps this, we inherit the fix.
+          #    Tracking via upstream PR rather than carrying our own bump.
+          #
+          # 2. /usr/src/app/plugins/{manx,sandcat}/payloads/** — pre-built
+          #    red-team agent binaries shipped by mitre/manx and
+          #    mitre/sandcat releases. Their CVE surface is intentional;
+          #    the whole point of the platform is to use these binaries
+          #    against test targets in a controlled lab. Suppressing here
+          #    keeps Trivy useful as a guard on actually-managed paths
+          #    (Python deps, our own additions).
+          skip-dirs: |
+            usr/local/go
+            usr/src/app/plugins/manx/payloads
+            usr/src/app/plugins/sandcat/payloads
 
       - name: Install cosign
         if: github.event_name != 'pull_request'
