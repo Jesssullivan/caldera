@@ -211,14 +211,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # GloriousFlywheel composite actions live on the org's main branch.
-      # The repo path matters and must match GitHub's case-sensitive lookup.
-      - name: Checkout self for flake.nix
-        uses: actions/checkout@v6
+      # The tinyland-nix runner image (ghcr.io/tinyland-inc/actions-runner-nix)
+      # ships Determinate Nix but doesn't pre-grant the runner UID
+      # daemon-store access, which makes raw `nix` invocations fail with
+      # "opening lock file /nix/var/nix/db/big-lock: Permission denied".
+      # determinate-nix-action handles both cases (already-installed +
+      # add-to-PATH, or fresh install) without needing the private
+      # tinyland-inc/GloriousFlywheel composite-action chain (private repo,
+      # GITHUB_TOKEN can't reach it from a public fork).
+      - uses: DeterminateSystems/determinate-nix-action@v3
 
       - name: Validate flake (no build, eval-only)
         shell: bash
-        run: |
-          # The runner image already has Determinate Nix + flake support
-          # baked in (per arc-runner module's runner_type=nix lane).
-          nix flake check --no-build --print-build-logs
+        run: nix flake check --no-build --print-build-logs
