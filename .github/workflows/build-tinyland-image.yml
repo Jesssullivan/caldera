@@ -211,16 +211,26 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # The tinyland-nix runner image (ghcr.io/tinyland-inc/actions-runner-nix)
-      # ships Determinate Nix but doesn't pre-grant the runner UID
-      # daemon-store access, which makes raw `nix` invocations fail with
+      # The tinyland-nix runner image ships a baked-in multi-user Nix at
+      # /nix/var/nix/profiles/default/bin/nix, but the multi-user nix-daemon
+      # isn't started in the ephemeral pod, and the runner UID lacks direct
+      # access to the system store DB lock — raw `nix` invocations fail with
       # "opening lock file /nix/var/nix/db/big-lock: Permission denied".
-      # determinate-nix-action handles both cases (already-installed +
-      # add-to-PATH, or fresh install) without needing the private
-      # tinyland-inc/GloriousFlywheel composite-action chain (private repo,
-      # GITHUB_TOKEN can't reach it from a public fork).
-      - uses: DeterminateSystems/determinate-nix-action@v3
-
+      #
+      # Sidestep entirely by pointing nix at a private user-owned store
+      # under $HOME. Eval-only operations (`flake check --no-build`) don't
+      # need the system store; this keeps the job hermetic and avoids the
+      # need for sudo or a daemon hand-start.
       - name: Validate flake (no build, eval-only)
         shell: bash
-        run: nix flake check --no-build --print-build-logs
+        env:
+          NIX_CONFIG: |
+            experimental-features = nix-command flakes
+        run: |
+          set -euo pipefail
+          PRIV_STORE="$RUNNER_TEMP/nix-priv"
+          mkdir -p "$PRIV_STORE"
+          nix \
+            --store "local?root=$PRIV_STORE" \
+            --extra-experimental-features 'nix-command flakes' \
+            flake check --no-build --print-build-logs
