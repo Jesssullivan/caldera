@@ -1,0 +1,21 @@
+apiVersion: v2
+name: shibboleth-idp
+description: |
+  Shibboleth IdP 5.2 for the Tinyland caldera lab (IdP-002, Phase 4).
+  Replaces the SimpleSAMLphp lab IdP (IdP-001) with a production-shape
+  identity provider that supports encrypted assertions, signed metadata,
+  attribute resolver/filter, and federation-grade key management.
+type: application
+version: 0.1.0
+appVersion: "5.2.1"
+keywords:
+  - shibboleth
+  - saml
+  - identity-provider
+  - tinyland
+maintainers:
+  - name: Tinyland Operators
+    email: ops@tinyland.dev
+home: https://shibboleth.net/products/identity-provider.html
+sources:
+  - https://github.com/Jesssullivan/caldera
