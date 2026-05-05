@@ -45,8 +45,8 @@ apt-get --no-install-recommends -y install git curl unzip python3-dev python3-pi
 rm -rf /var/lib/apt/lists/*
 
 # Install Golang from source (apt version is too out-of-date)
-RUN curl -k -L https://go.dev/dl/go1.25.0.linux-amd64.tar.gz -o go1.25.0.linux-amd64.tar.gz && \
-tar -C /usr/local -xzf go1.25.0.linux-amd64.tar.gz && rm go1.25.0.linux-amd64.tar.gz
+RUN curl -k -L https://go.dev/dl/go1.25.7.linux-amd64.tar.gz -o go1.25.7.linux-amd64.tar.gz && \
+tar -C /usr/local -xzf go1.25.7.linux-amd64.tar.gz && rm go1.25.7.linux-amd64.tar.gz
 ENV PATH="$PATH:/usr/local/go/bin"
 RUN go version
 
@@ -91,11 +91,20 @@ RUN if [ "$VARIANT" = "full" ]; then \
 # The commands above (git clone) will generate *huge* .git folders - remove them
 RUN (find . -type d -name ".git") | xargs rm -rf
 
-# Install Go dependencies
-RUN cd /usr/src/app/plugins/sandcat/gocat; go mod tidy && go mod download
+# Install Go dependencies. Keep the image-local module graph ahead of
+# fixed CRITICAL scanner findings in generated Sandcat payload binaries.
+RUN cd /usr/src/app/plugins/sandcat/gocat; \
+    go get golang.org/x/crypto@v0.31.0; \
+    go mod tidy; \
+    go mod download
 
 # Update sandcat agents
 RUN cd /usr/src/app/plugins/sandcat; ./update-agents.sh
+
+# Refresh Manx shell payloads with the same patched Go toolchain. The
+# submodule ships prebuilt payloads from Go 1.13.7, which trips the image
+# scanner even though runtime dynamic compilation uses the installed Go.
+RUN cd /usr/src/app/plugins/manx; ./update-shells.sh
 
 # Make sure emu can always be used in container (even if not enabled right now)
 RUN cd /usr/src/app/plugins/emu; \
