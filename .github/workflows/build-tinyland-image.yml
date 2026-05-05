@@ -59,7 +59,12 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: tinyland-inc/caldera
+  # Image namespace tracks the source repo namespace. The GitHub-issued
+  # GITHUB_TOKEN can publish to ghcr.io/<repo-owner>/* without extra perms;
+  # crossing into ghcr.io/tinyland-inc/* requires either an org PAT secret
+  # or moving the source repo. Phase 1 keeps things working with the
+  # default token; Phase 2 deploys reference the same registry path.
+  IMAGE_NAME: ${{ github.repository_owner }}/caldera
   # Phase 1 ships slim by default — fast iteration, network-attached deploy.
   # Bump to full once we want offline atomic/emu support (separate Linear).
   VARIANT: ${{ github.event_name == 'workflow_dispatch' && inputs.variant || 'slim' }}
