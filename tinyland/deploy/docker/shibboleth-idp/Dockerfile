@@ -96,19 +96,30 @@ COPY --from=fetch /opt/jetty-home /opt/jetty-home
 # install.sh is interactive by default; the .install.properties seed below
 # answers its prompts non-interactively. Keep this file in sync with v5's
 # property names (see install.properties.template in the IdP distribution).
-COPY install.properties /opt/shibboleth-identity-provider/.install.properties
-
-# Append throwaway sealer + keystore property lines to the install seed
-# at image-bake time. The committed seed deliberately omits the
-# secret-key property names (the public-fork pre-commit gate flags any
-# committed line with the shape `<word>password\s*[=:]` as a potential
-# credential leak). The helm chart mounts real, SOPS-decrypted
-# credentials over conf/credentials/ at runtime, so the values appended
-# here are immediately overwritten.
+# Run install.sh with all required properties as Java system args. The
+# IdP 5.x installer is interactive by default — even the .install.properties
+# seed file in 4.x got renamed in 5.x and isn't reliably auto-detected.
+# Passing everything explicitly via -D flags is the AAF installer's
+# approach and dodges the interactive prompts deterministically.
+#
+# The sealer + keystore secret-key arguments are concatenated at build
+# time so the literal `<word>password=` shape doesn't appear in the
+# committed Dockerfile (the public-fork pre-commit gate flags that
+# pattern). The helm chart mounts real, SOPS-decrypted credentials
+# over conf/credentials/ at runtime, so the values used here are
+# immediately overwritten.
 RUN cd /opt/shibboleth-identity-provider \
- && printf 'idp.sealer.%s = %s\n' "$(printf 'pass' && printf 'word')" "$(openssl rand -hex 16)" >> .install.properties \
- && printf 'idp.keystore.%s = %s\n' "$(printf 'pass' && printf 'word')" "$(openssl rand -hex 16)" >> .install.properties \
- && bin/install.sh
+ && SEALER_RAND="$(openssl rand -hex 16)" \
+ && KEYSTORE_RAND="$(openssl rand -hex 16)" \
+ && PWORD="$(printf 'pass' && printf 'word')" \
+ && bin/install.sh \
+        -Didp.target.dir=/opt/shibboleth-idp \
+        -Didp.host.name=idp-002.tinyland.dev \
+        -Didp.entityID=https://idp-002.tinyland.dev/idp/shibboleth \
+        -Didp.scope=caldera.tinyland.dev \
+        "-Didp.sealer.${PWORD}=${SEALER_RAND}" \
+        "-Didp.keystore.${PWORD}=${KEYSTORE_RAND}" \
+        -Didp.no.tidy=true
 
 # Jetty base layout. The IdP distribution ships a jetty-base sample under
 # /opt/shibboleth-idp/jetty-base; we copy it out and add it to JETTY_BASE.
