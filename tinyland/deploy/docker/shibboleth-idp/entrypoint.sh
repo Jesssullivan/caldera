@@ -19,9 +19,13 @@ if [ ! -f "${JETTY_BASE_DIR}/.bootstrapped" ]; then
     echo "[entrypoint] bootstrapping ${JETTY_BASE_DIR}"
     mkdir -p "${JETTY_BASE_DIR}"
     cd "${JETTY_BASE_DIR}"
+    # Jetty 12 split the EE9/EE10 servlet APIs out into their own module
+    # namespaces (ee10-*). Servlet 6 / Jakarta EE 10 is the modern target;
+    # IdP 5.x runs fine on it. Keep the module list minimal — IdP only
+    # needs the webapp pipeline plus deploy + annotations scanning.
     java -jar "${JETTY_HOME_DIR}/start.jar" \
         --approve-all-licenses \
-        --add-modules=server,http,deploy,annotations,jsp,ee10-webapp,plus,ee10-plus,ee10-jsp
+        --add-modules=server,http,deploy,ee10-webapp,ee10-annotations,ee10-plus,ee10-jsp
 
     # Wire idp.war into Jetty's webapps. Context path /idp matches the
     # default IdP entityID URL ($scope/idp/shibboleth).
