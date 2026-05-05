@@ -1,0 +1,165 @@
+name: Build Shibboleth IdP Image
+
+# Builds the Shibboleth IdP 5.2 image (Phase 4 — IdP-002) from
+# tinyland/deploy/docker/shibboleth-idp/. Mirrors build-tinyland-image.yml
+# closely so the operator runbook stays consistent across the two images.
+#
+# Pushes ghcr.io/<owner>/shibboleth-idp:<tag> with the same SHA-pinned
+# upstream artifacts that the Dockerfile references (IdP 5.2.1 + Jetty 12).
+#
+# Linear: TIN-Phase-4
+
+on:
+  push:
+    branches:
+      - master
+      - "tinyland/**"
+    paths:
+      - "tinyland/deploy/docker/shibboleth-idp/**"
+      - ".github/workflows/build-shibboleth-image.yml"
+  pull_request:
+    branches:
+      - master
+      - "tinyland/**"
+    paths:
+      - "tinyland/deploy/docker/shibboleth-idp/**"
+      - ".github/workflows/build-shibboleth-image.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write # cosign keyless via Sigstore OIDC
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    name: Build & sign Shibboleth IdP image
+    runs-on: tinyland-dind
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Compute image tags
+        id: tags
+        shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          IS_MASTER: ${{ github.ref == 'refs/heads/master' }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          # OCI repo names must be lowercase; GitHub preserves owner casing.
+          owner_lc="${REPO_OWNER,,}"
+          image_name="${owner_lc}/shibboleth-idp"
+          ref_slug="${REF_NAME//\//-}"
+          short_sha="${SHA::12}"
+          base="${REGISTRY}/${image_name}"
+          # IdP version comes from the Dockerfile's IDP_VERSION ARG. Hard-coded
+          # here to match; bump in lockstep with Dockerfile when upgrading.
+          idp_version="5.2.1"
+          echo "image_name=${image_name}" >> "${GITHUB_OUTPUT}"
+          echo "image_base=${base}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "tags<<EOF"
+            echo "${base}:${idp_version}-${short_sha}"
+            echo "${base}:${idp_version}-${ref_slug}"
+            if [[ "${IS_MASTER}" == "true" ]]; then
+              echo "${base}:${idp_version}"
+              echo "${base}:latest"
+            fi
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: tinyland/deploy/docker/shibboleth-idp
+          file: tinyland/deploy/docker/shibboleth-idp/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha,scope=shibboleth-idp
+          cache-to: type=gha,mode=max,scope=shibboleth-idp
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.description=Tinyland self-built Shibboleth IdP 5.2 image (Phase 4 IdP-002).
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=shibboleth-idp
+            org.opencontainers.image.version=5.2.1
+            org.opencontainers.image.licenses=Apache-2.0
+            tinyland.fork=true
+            tinyland.upstream=https://shibboleth.net/products/identity-provider.html
+
+      - name: Restore Trivy cache
+        if: github.event_name != 'pull_request'
+        uses: actions/cache@v5
+        with:
+          path: ${{ github.workspace }}/.cache/trivy
+          key: trivy-cache-${{ runner.os }}-shibboleth-${{ hashFiles('tinyland/deploy/docker/shibboleth-idp/Dockerfile') }}
+          restore-keys: |
+            trivy-cache-${{ runner.os }}-shibboleth-
+
+      - name: Scan image for CRITICAL vulnerabilities
+        if: github.event_name != 'pull_request'
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          image-ref: ${{ steps.tags.outputs.image_base }}@${{ steps.build.outputs.digest }}
+          cache: false
+          cache-dir: ${{ github.workspace }}/.cache/trivy
+          format: table
+          exit-code: "1"
+          severity: CRITICAL
+          ignore-unfixed: true
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST_REF: ${{ steps.tags.outputs.image_base }}@${{ steps.build.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${DIGEST_REF}"
+          cosign verify \
+            --certificate-identity-regexp "https://github.com/.+/caldera/\.github/workflows/build-shibboleth-image\.yml@.+" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${DIGEST_REF}"
+
+      - name: Summarize image
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Shibboleth IdP image — 5.2.1"
+            echo
+            echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
+            echo "- Tags:"
+            while IFS= read -r tag; do
+              [[ -n "$tag" ]] && echo "  - \`$tag\`"
+            done <<< "${{ steps.tags.outputs.tags }}"
+          } >> "${GITHUB_STEP_SUMMARY}"
