@@ -1,0 +1,112 @@
+# Default values for the simplesamlphp lab IdP chart.
+# This is IdP-001 in the deployment plan — purpose is to exercise the
+# Caldera SP path. Replaced by a real Shibboleth IdP 5.2 in Phase 4.
+
+# -- Image source. SimpleSAMLphp doesn't ship an "official" image; we use
+# the maintained third-party kristophjunge/test-saml-idp image which
+# pre-configures the test IdP with a one-user account.
+image:
+  # kristophjunge/test-saml-idp is the de-facto SimpleSAMLphp test container.
+  # Pin a digest in production deploys.
+  repository: ghcr.io/kristophjunge/test-saml-idp
+  tag: "1.15"
+  pullPolicy: IfNotPresent
+
+# -- Replicas. SimpleSAMLphp is mostly stateless (modulo session storage),
+# so 1 replica suffices for a lab.
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# -- The IdP entityId. Must match what the Caldera SP's settings.json
+# refers to as `idp.entityId`.
+idp:
+  entityId: "https://idp-001.tinyland.dev/saml2/idp/metadata.php"
+
+# -- Pre-configured user. The username here must match a user account
+# pre-created in Caldera's conf/local.yml (e.g. `red`). The IdP releases
+# this as the `username` SAML attribute.
+testUser:
+  username: red
+  email: red@caldera.tinyland.dev
+  # Plaintext password is fine in the test image; production uses a
+  # real Shibboleth IdP with proper account backends.
+  password: "test"
+
+# -- The SP entityId(s) this IdP issues assertions for. Must match
+# Caldera's sp.entityId in settings.json.
+sp:
+  entityId: "https://caldera.tinyland.dev"
+  acsUrl: "https://caldera.tinyland.dev/saml"
+  # Public X.509 cert of the SP, used for assertion encryption + sig
+  # verification. Provision via the config Secret out of band.
+  x509cert: ""
+
+# -- Service exposure inside the cluster. Tailscale operator picks up the
+# annotations.
+service:
+  type: ClusterIP
+  port: 8080
+  tailscale:
+    enabled: false
+    hostname: idp-001
+    proxyClass: ""
+    https: false
+
+# -- Ingress with cert-manager for the public LE-cert path. This is
+# what Caldera's IdP entityId resolves to.
+ingress:
+  enabled: false
+  className: nginx
+  host: idp-001.tinyland.dev
+  certManager:
+    clusterIssuer: letsencrypt-prod
+  annotations: {}
+  tls:
+    enabled: true
+    secretName: simplesamlphp-tls
+
+networkPolicy:
+  enabled: true
+  allowedIngressNamespaces:
+    - name: tailscale
+      labelKey: kubernetes.io/metadata.name
+    - name: kube-system
+      labelKey: kubernetes.io/metadata.name
+    - name: ingress-nginx
+      labelKey: kubernetes.io/metadata.name
+  allowedIngressPodLabels: []
+
+# -- Optional config Secret containing additional metadata.xml or a
+# pre-baked authsources.php. Empty for the default test profile.
+config:
+  secretName: ""
+  mountPath: /var/www/simplesamlphp/config
+
+# -- Standard chart knobs.
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+extraLabels:
+  app.kubernetes.io/component: idp
+  tinyland.fork: "true"
+
+podAnnotations: {}
