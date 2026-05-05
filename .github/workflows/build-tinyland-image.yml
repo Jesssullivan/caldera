@@ -13,7 +13,6 @@ on:
   push:
     branches:
       - master
-      - "tinyland/**"
     paths:
       - "Dockerfile"
       - ".dockerignore"
@@ -74,6 +73,10 @@ env:
 jobs:
   build:
     name: Build & sign Caldera image
+    # Branch pushes for PR work already get a pull_request image build.
+    # Avoid running a second DIND build for the same commit unless the
+    # commit is on master and should publish an image.
+    if: ${{ github.event_name != 'push' || github.ref == 'refs/heads/master' }}
     # `tinyland-dind` is the workflow-facing capability label across the
     # cluster — every overlay stack hardcodes it (the helm release names
     # are what differ per overlay; see jesssullivan-infra/tofu/stacks/
@@ -134,8 +137,6 @@ jobs:
           build-args: |
             VARIANT=${{ env.VARIANT }}
           tags: ${{ steps.tags.outputs.tags }}
-          cache-from: type=gha,scope=caldera-${{ env.VARIANT }}
-          cache-to: type=gha,mode=max,scope=caldera-${{ env.VARIANT }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.description=Tinyland fork of MITRE Caldera (${{ env.VARIANT }} variant) with patched SAML plugin support and xmlsec native libs.
