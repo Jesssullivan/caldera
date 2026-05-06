@@ -128,6 +128,15 @@ spec:
               subPath: idp-encryption.key
               readOnly: true
             {{- end }}
+            # SP metadata file consumed by metadata-providers.xml's
+            # FilesystemMetadataProvider. Mounted at the path
+            # idp.properties expects.
+            {{- if .Values.spMetadata.configMapName }}
+            - name: sp-metadata
+              mountPath: /opt/shibboleth-idp/metadata/caldera-sp.xml
+              subPath: caldera-sp.xml
+              readOnly: true
+            {{- end }}
       volumes:
         {{- if .Values.idpConfig.configMapName }}
         - name: idp-config
@@ -139,4 +148,9 @@ spec:
           secret:
             secretName: {{ .Values.idpCredentials.secretName }}
             defaultMode: 0400
+        {{- end }}
+        {{- if .Values.spMetadata.configMapName }}
+        - name: sp-metadata
+          configMap:
+            name: {{ .Values.spMetadata.configMapName }}
         {{- end }}

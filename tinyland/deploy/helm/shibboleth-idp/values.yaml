@@ -39,6 +39,14 @@ idp:
 idpConfig:
   configMapName: ""
 
+# -- SP metadata ConfigMap. Mounted at /opt/shibboleth-idp/metadata/caldera-sp.xml
+# (referenced by metadata-providers.xml's FilesystemMetadataProvider).
+# Caldera's SAML plugin doesn't expose /saml/metadata so the SP's metadata
+# document is rendered by the operator (blahaj/scripts/render-idp-002-tfvars.sh)
+# from entityId + ACS URL + signing/encryption certs.
+spMetadata:
+  configMapName: ""
+
 # -- IdP signing + encryption keypairs + sealer keystore. Secret with:
 #   - idp-signing.crt + idp-signing.key
 #   - idp-encryption.crt + idp-encryption.key
