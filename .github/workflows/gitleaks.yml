@@ -42,6 +42,11 @@ jobs:
       - name: Run gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
+          # gitleaks-action v2 requires GITHUB_TOKEN for pull_request runs
+          # so it can post the diff scan summary. Auto-issued token is
+          # sufficient because the permissions block above pins to
+          # contents:read + pull-requests:read.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Honors .gitleaks.toml at repo root automatically.
           GITLEAKS_CONFIG: .gitleaks.toml
           # Don't fail PRs from forks for upstream-merge baseline noise; the
