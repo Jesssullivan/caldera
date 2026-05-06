@@ -18,9 +18,35 @@ forever.
 - `tinyland/` — everything Tinyland-specific (docs, deploy artifacts, scripts).
 - `flake.nix` + `flake.lock` — Nix devShell + container build.
 - `.envrc` — direnv hook for the flake.
-- `.github/workflows/build-tinyland.yml` (and any other `*-tinyland.yml`).
+- `.github/workflows/build-tinyland*.yml` and `.github/workflows/gitleaks.yml`.
+- `.gitleaks.toml` — secret-scanning ruleset for this public fork.
 
 Upstream does not maintain any of these paths, so they never collide on merge.
+
+### Public-fork hardening
+
+This fork is **public**: every commit in `master` and any pushed feature branch
+lands in world-visible git history immediately. Three gates protect against
+accidental secret leaks:
+
+1. **Local pre-commit** — `pre-commit install` enables a gitleaks check
+   against staged changes (config: `.gitleaks.toml`).
+2. **CI gate** — `.github/workflows/gitleaks.yml` runs `gitleaks detect`
+   against every push and PR. Findings fail the workflow.
+3. **Global git hook dispatcher** — the home-manager-managed
+   `~/.config/git/hooks/pre-commit` already blocks common credential
+   patterns (e.g., assignment-style lines naming a credential field).
+   Caught a real false positive during Phase 1 — fix the wording, do
+   not bypass.
+
+When adding new secret-shaped content to the fork:
+
+- If it's intentionally public test data (upstream test fixtures, placeholder
+  certs in `conf/`), add a path entry to `.gitleaks.toml` `[allowlist]` with
+  a comment explaining *why* it's safe.
+- If it's a real secret, **never** check it in. Encrypt to SOPS in
+  `~/git/tummycrypt/credentials/<name>.yaml` and reference by the SOPS path
+  in tofu/helm overlays.
 
 ### Files we mutate (minimal, additive)
 

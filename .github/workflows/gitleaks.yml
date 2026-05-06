@@ -1,0 +1,57 @@
+name: Gitleaks (secret scanning)
+
+# Public-fork hardening: every commit is world-visible. This workflow scans
+# every push + PR for accidentally-committed secrets using gitleaks against
+# the rule set in .gitleaks.toml.
+#
+# Linear: TIN-957 (parent — fork hardening)
+
+on:
+  push:
+    branches:
+      - master
+      - "tinyland/**"
+  pull_request:
+    branches:
+      - master
+      - "tinyland/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    name: Scan repository for secrets
+    # GitHub-hosted runner is fine — gitleaks is a single binary, no cluster
+    # resources needed and isolated from the cluster credentials surface.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for diff scan)
+        uses: actions/checkout@v6
+        with:
+          # gitleaks needs the full history to scan past commits, not just
+          # the latest one. fetch-depth: 0 = unshallow.
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          # gitleaks-action v2 requires GITHUB_TOKEN for pull_request runs
+          # so it can post the diff scan summary. Auto-issued token is
+          # sufficient because the permissions block above pins to
+          # contents:read + pull-requests:read.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Honors .gitleaks.toml at repo root automatically.
+          GITLEAKS_CONFIG: .gitleaks.toml
+          # Don't fail PRs from forks for upstream-merge baseline noise; the
+          # default rules + our custom rules are strict enough that any new
+          # finding is signal.
+          GITLEAKS_ENABLE_SUMMARY: "true"
+          # Free-tier license environment for OSS repos.
+          GITLEAKS_LICENSE: ""

@@ -13,6 +13,7 @@ on:
   push:
     branches:
       - master
+      - "tinyland/**"
     paths:
       - "Dockerfile"
       - ".dockerignore"
@@ -67,10 +68,12 @@ env:
   # GITHUB_TOKEN can publish to ghcr.io/<repo-owner>/* without extra perms;
   # crossing into ghcr.io/tinyland-inc/* requires either an org PAT secret
   # or moving the source repo. Phase 1 keeps things working with the
-  # default token; Phase 2 deploys reference the same registry path. The
-  # tag step lowercases this value because OCI repository names reject
-  # mixed-case GitHub owners such as Jesssullivan.
-  IMAGE_NAME: ${{ github.repository_owner }}/caldera
+  # default token; Phase 2 deploys reference the same registry path.
+  #
+  # OCI repo names must be lowercase. github.repository_owner preserves the
+  # account's display casing (e.g. Jesssullivan), so we lowercase it here.
+  # IMAGE_NAME is computed in the build job to keep it derived from the run
+  # context; can't use ${{}} expressions in env at workflow level for funcs.
   # Phase 1 ships slim by default — fast iteration, network-attached deploy.
   # Bump to full once we want offline atomic/emu support (separate Linear).
   VARIANT: ${{ github.event_name == 'workflow_dispatch' && inputs.variant || 'slim' }}
@@ -78,10 +81,6 @@ env:
 jobs:
   build:
     name: Build & sign Caldera image
-    # Branch pushes for PR work already get a pull_request image build.
-    # Avoid running a second DIND build for the same commit unless the
-    # commit is on master and should publish an image.
-    if: ${{ github.event_name != 'push' || github.ref == 'refs/heads/master' }}
     # `tinyland-dind` is the workflow-facing capability label across the
     # cluster — every overlay stack hardcodes it (the helm release names
     # are what differ per overlay; see jesssullivan-infra/tofu/stacks/
@@ -112,13 +111,18 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           SHA: ${{ github.sha }}
           IS_MASTER: ${{ github.ref == 'refs/heads/master' }}
+          REPO_OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
+          # OCI repo names must be lowercase; GitHub preserves owner casing.
+          owner_lc="${REPO_OWNER,,}"
+          image_name="${owner_lc}/caldera"
           ref_slug="${REF_NAME//\//-}"
           short_sha="${SHA::12}"
-          base="${REGISTRY}/${IMAGE_NAME,,}"
+          base="${REGISTRY}/${image_name}"
+          echo "image_name=${image_name}" >> "${GITHUB_OUTPUT}"
+          echo "image_base=${base}" >> "${GITHUB_OUTPUT}"
           {
-            echo "image=${base}"
             echo "tags<<EOF"
             echo "${base}:${VARIANT}-${short_sha}"
             echo "${base}:${VARIANT}-${ref_slug}"
@@ -142,6 +146,8 @@ jobs:
           build-args: |
             VARIANT=${{ env.VARIANT }}
           tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha,scope=caldera-${{ env.VARIANT }}
+          cache-to: type=gha,mode=max,scope=caldera-${{ env.VARIANT }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.description=Tinyland fork of MITRE Caldera (${{ env.VARIANT }} variant) with patched SAML plugin support and xmlsec native libs.
@@ -165,7 +171,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
-          image-ref: ${{ steps.tags.outputs.image }}@${{ steps.build.outputs.digest }}
+          image-ref: ${{ steps.tags.outputs.image_base }}@${{ steps.build.outputs.digest }}
           cache: false
           cache-dir: ${{ github.workspace }}/.cache/trivy
           format: table
@@ -180,7 +186,7 @@ jobs:
       - name: Sign image with cosign (keyless)
         if: github.event_name != 'pull_request'
         env:
-          DIGEST_REF: ${{ steps.tags.outputs.image }}@${{ steps.build.outputs.digest }}
+          DIGEST_REF: ${{ steps.tags.outputs.image_base }}@${{ steps.build.outputs.digest }}
         shell: bash
         run: |
           set -euo pipefail
@@ -214,5 +220,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Validate flake
-        run: nix flake check --no-build --print-build-logs
+      # GloriousFlywheel composite actions live on the org's main branch.
+      # The repo path matters and must match GitHub's case-sensitive lookup.
+      - name: Checkout self for flake.nix
+        uses: actions/checkout@v6
+
+      - name: Validate flake (no build, eval-only)
+        shell: bash
+        run: |
+          # The runner image already has Determinate Nix + flake support
+          # baked in (per arc-runner module's runner_type=nix lane).
+          nix flake check --no-build --print-build-logs

@@ -49,3 +49,7 @@
 [submodule "plugins/magma"]
 	path = plugins/magma
 	url = https://github.com/mitre/magma.git
+[submodule "plugins/saml"]
+	path = plugins/saml
+	url = https://github.com/tinyland-inc/caldera-saml.git
+	branch = v5-compat

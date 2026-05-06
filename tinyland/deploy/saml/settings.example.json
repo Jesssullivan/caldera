@@ -1,0 +1,64 @@
+{
+  "_comment": "Example plugins/saml/conf/settings.json for the Tinyland Caldera deployment. The real file is rendered by tofu (blahaj/tofu/stacks/caldera/secrets.tf) from SOPS-encrypted vars and mounted at /usr/src/app/plugins/saml/conf/settings.json. Use this as a reference for the shape — never check in real keys.",
+  "strict": true,
+  "debug": false,
+  "sp": {
+    "entityId": "https://caldera.tinyland.dev",
+    "assertionConsumerService": {
+      "url": "https://caldera.tinyland.dev/saml",
+      "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+    },
+    "singleLogoutService": {
+      "_comment": "Caldera SAML plugin does not support SLO. Leave empty.",
+      "url": "",
+      "binding": ""
+    },
+    "NameIDFormat": "urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified",
+    "x509cert": "<SP signing public cert, PEM with BEGIN/END headers stripped>",
+    "privateKey": "<SP signing private key, PEM with BEGIN/END headers stripped>"
+  },
+  "idp": {
+    "entityId": "https://idp-001.tinyland.dev/saml2/idp/metadata.php",
+    "singleSignOnService": {
+      "url": "https://idp-001.tinyland.dev/simplesaml/saml2/idp/SSOService.php",
+      "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+    },
+    "singleLogoutService": {
+      "url": "",
+      "binding": ""
+    },
+    "x509cert": "<IdP signing public cert, PEM with BEGIN/END headers stripped>"
+  },
+  "security": {
+    "_comment": "Tuned for production-shape Shibboleth IdP 5.2. SimpleSAMLphp can be more permissive in lab; tighten when swapping to Shibboleth in Phase 4.",
+    "authnRequestsSigned": true,
+    "logoutRequestSigned": true,
+    "logoutResponseSigned": true,
+    "wantMessagesSigned": false,
+    "wantAssertionsSigned": true,
+    "wantAssertionsEncrypted": true,
+    "wantNameIdEncrypted": false,
+    "signMetadata": true,
+    "wantAttributeStatement": true,
+    "requestedAuthnContext": false,
+    "signatureAlgorithm": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
+    "digestAlgorithm": "http://www.w3.org/2001/04/xmlenc#sha256"
+  },
+  "contactPerson": {
+    "technical": {
+      "givenName": "Tinyland Operator",
+      "emailAddress": "ops@tinyland.dev"
+    },
+    "support": {
+      "givenName": "Tinyland Operator",
+      "emailAddress": "ops@tinyland.dev"
+    }
+  },
+  "organization": {
+    "en-US": {
+      "name": "Tinyland",
+      "displayname": "Tinyland Caldera SP",
+      "url": "https://caldera.tinyland.dev"
+    }
+  }
+}

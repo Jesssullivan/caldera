@@ -1,0 +1,30 @@
+SimpleSAMLphp lab IdP deployed.
+
+Release:    {{ .Release.Name }}
+Namespace:  {{ .Release.Namespace }}
+
+IdP entityId: {{ .Values.idp.entityId }}
+SP entityId:  {{ .Values.sp.entityId }}
+SP ACS URL:   {{ .Values.sp.acsUrl }}
+
+Test user (released as `username` SAML attribute):
+  {{ .Values.testUser.username }}
+
+{{- if .Values.ingress.enabled }}
+
+Login at: https://{{ .Values.ingress.host }}/simplesaml/
+{{- end }}
+
+Pair this IdP with Caldera by setting plugins/saml/conf/settings.json:
+
+    "idp": {
+      "entityId": "{{ .Values.idp.entityId }}",
+      "singleSignOnService": {
+        "url": "https://{{ .Values.ingress.host | default "<idp-host>" }}/simplesaml/saml2/idp/SSOService.php",
+        "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+      }
+    }
+
+Pre-create a `{{ .Values.testUser.username }}` account in Caldera's conf/local.yml
+under `users:` so the IdP-released `username` attribute lands you in
+that account.

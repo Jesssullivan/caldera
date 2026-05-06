@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "simplesamlphp.fullname" . }}
+  labels: {{- include "simplesamlphp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: {{- include "simplesamlphp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "simplesamlphp.selectorLabels" . | nindent 8 }}
+        {{- with .Values.extraLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "simplesamlphp.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: idp
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            # The kristophjunge/test-saml-idp image accepts these env vars
+            # to seed the test IdP without baking in a config volume.
+            - name: SIMPLESAMLPHP_SP_ENTITY_ID
+              value: {{ .Values.sp.entityId | quote }}
+            - name: SIMPLESAMLPHP_SP_ASSERTION_CONSUMER_SERVICE
+              value: {{ .Values.sp.acsUrl | quote }}
+            - name: SIMPLESAMLPHP_SP_SINGLE_LOGOUT_SERVICE
+              value: ""
+            - name: SIMPLESAMLPHP_IDP_ENTITY_ID
+              value: {{ .Values.idp.entityId | quote }}
+            - name: SIMPLESAMLPHP_ADMIN_PASSWORD
+              value: {{ .Values.testUser.password | quote }}
+            - name: SIMPLESAMLPHP_SECRET_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "simplesamlphp.fullname" . }}-salt
+                  key: salt
+          {{- with .Values.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if or .Values.config.secretName .Values.users }}
+          volumeMounts:
+            {{- if .Values.config.secretName }}
+            - name: config
+              mountPath: {{ .Values.config.mountPath }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.users }}
+            - name: users-config
+              mountPath: /var/www/simplesamlphp/config/authsources.php
+              subPath: authsources.php
+              readOnly: true
+            - name: users-config
+              mountPath: /var/www/simplesamlphp/metadata/saml20-idp-hosted.php
+              subPath: saml20-idp-hosted.php
+              readOnly: true
+            - name: users-config
+              mountPath: /var/www/simplesamlphp/metadata/saml20-sp-remote.php
+              subPath: saml20-sp-remote.php
+              readOnly: true
+            {{- end }}
+          {{- end }}
+      {{- if or .Values.config.secretName .Values.users }}
+      volumes:
+        {{- if .Values.config.secretName }}
+        - name: config
+          secret:
+            secretName: {{ .Values.config.secretName }}
+        {{- end }}
+        {{- if .Values.users }}
+        - name: users-config
+          configMap:
+            name: {{ include "simplesamlphp.fullname" . }}-users
+        {{- end }}
+      {{- end }}

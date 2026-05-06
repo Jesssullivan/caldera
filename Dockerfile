@@ -63,6 +63,14 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
 # Install pip requirements
 RUN pip3 install --break-system-packages --no-cache-dir -r requirements.txt
 
+# Tinyland fork: install SAML plugin requirements when the submodule is
+# present. The conditional keeps the line a no-op for vanilla upstream
+# merges (when plugins/saml is absent), so this mutation is safe to
+# carry indefinitely. xmlsec native libs already installed above.
+RUN if [ -f "/usr/src/app/plugins/saml/requirements.txt" ]; then \
+        pip3 install --break-system-packages --no-cache-dir -r /usr/src/app/plugins/saml/requirements.txt; \
+    fi
+
 # For offline atomic (disable it by default in slim image)
 # Disable atomic if this is not downloaded
 RUN if [ ! -d "/usr/src/app/plugins/atomic/data/atomic-red-team" ] && [ "$VARIANT" = "full" ]; then   \

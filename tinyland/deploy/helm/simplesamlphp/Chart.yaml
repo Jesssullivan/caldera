@@ -1,0 +1,23 @@
+apiVersion: v2
+name: simplesamlphp
+description: |
+  SimpleSAMLphp as a lab IdP for the Tinyland Caldera deployment. Closest
+  Shibboleth-flavored stand-in we can stand up quickly to validate the SP
+  path before swapping to a real Shibboleth IdP 5.2 in Phase 4.
+type: application
+version: 0.1.0
+appVersion: "2.5.0"
+home: https://simplesamlphp.org/
+sources:
+  - https://github.com/Jesssullivan/caldera
+  - https://github.com/simplesamlphp/simplesamlphp
+maintainers:
+  - name: Jess Sullivan
+    email: jess@sulliwood.org
+keywords:
+  - saml
+  - simplesamlphp
+  - idp
+  - lab
+annotations:
+  artifacthub.io/license: LGPL-2.1-or-later
