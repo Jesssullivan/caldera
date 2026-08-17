@@ -8,7 +8,7 @@ description: |
   upstream-compatible Caldera image as long as the SAML plugin's xmlsec
   native deps are present.
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: "5.1.0"
 home: https://github.com/Jesssullivan/caldera
 sources:
