@@ -155,10 +155,12 @@ ports:
   contactFtpEnabled: false
   contactFtp: 2222
 
-# -- Pod scheduling. By default the workload runs on bumble (the OpenEBS
-# storage node) so PVC volume affinity matches.
-nodeSelector:
-  kubernetes.io/hostname: bumble
+# -- Pod scheduling. The chart declares NO default placement: node selection
+# is owned by the consuming IaC (blahaj tofu/stacks/caldera passes the
+# capability.tinyland.dev/openebs-zfs selector). A hostname default here
+# would helm-deep-merge UNDER the consumer's values and silently re-pin the
+# pod by raw hostname (observed live 2026-08-17, blahaj PR #1361 fold-in).
+nodeSelector: {}
 
 tolerations: []
 affinity: {}
