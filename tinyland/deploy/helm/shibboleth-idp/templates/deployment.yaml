@@ -105,6 +105,13 @@ spec:
               mountPath: /opt/shibboleth-idp/conf/relying-party.xml
               subPath: relying-party.xml
               readOnly: true
+            # The well-known endpoint serves this static file. A full-directory
+            # mount would hide other installed metadata; the pod-template
+            # metadata checksum forces a restart when this subPath changes.
+            - name: idp-config
+              mountPath: /opt/shibboleth-idp/metadata/idp-metadata.xml
+              subPath: idp-metadata.xml
+              readOnly: true
             {{- end }}
             # IdP signing + encryption keypairs. subPath again — a
             # directory mount would shadow the image-baked sealer.jks

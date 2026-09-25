@@ -24,17 +24,18 @@ resources:
     cpu: 1000m
     memory: 1Gi
 
-# -- IdP identity. entityId is what the SP trusts; scope is the release
-# domain (subjectName attribute scope).
+# -- Declared IdP identity for the owner handoff. These values alone do not
+# configure the image's runtime issuer or regenerate its static metadata.
 idp:
   entityId: "https://idp-002.tinyland.dev/idp/shibboleth"
   scope: "caldera.tinyland.dev"
 
-# -- Per-deployment IdP config files. ConfigMap mounted over /opt/shibboleth-idp/conf:
+# -- Per-deployment IdP ConfigMap files, mounted individually:
 #   - attribute-resolver.xml — define `username` attribute, source-mapped
 #   - attribute-filter.xml   — release `username` to caldera SP only
 #   - metadata-providers.xml — consume caldera SP metadata, pin sig cert
 #   - relying-party.xml      — per-SP profile policy
+#   - idp-metadata.xml       — exact public IdP metadata served at /idp/shibboleth
 # Set configMapName to non-empty to mount; empty keeps the image's defaults.
 idpConfig:
   configMapName: ""

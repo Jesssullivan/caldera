@@ -1,20 +1,36 @@
 # shibboleth-idp Helm chart (Phase 4)
 
-Status: **scaffold only** — Phase 4 is in progress as of 2026-05-05.
+Status: **adopted-live IdP-002 chart**. Caldera still selects IdP-001; a
+Shibboleth chart release is not an SP cutover or authenticated SAML proof.
 
-This chart will eventually deploy the Shibboleth IdP 5.2 image built from
+This chart deploys the Shibboleth IdP 5.2 image built from
 `tinyland/deploy/docker/shibboleth-idp/`. It deliberately shadows the layout
 of `tinyland/deploy/helm/simplesamlphp/` so the operator can reuse muscle
 memory between IdP-001 and IdP-002.
 
-## Phase 4 work in flight
+## Public metadata file
 
-The IdP-002 stack is **not yet deployable**. Required follow-up:
+Shibboleth serves `/idp/shibboleth` from an install-time static
+`metadata/idp-metadata.xml`; the endpoint does not dynamically reflect the
+runtime issuer or mounted certificates. When `idpConfig.configMapName` is set,
+the chart mounts its reviewed `idp-metadata.xml` key as one read-only subPath
+file alongside the four existing XML overrides. Never mount a partial
+`idp.properties.override` over the full installed properties file, or mount
+the whole metadata directory over the image. The owner-provided
+`podAnnotations` metadata checksum changes the pod template when the file
+changes, because a running subPath mount does not refresh. Chart version
+0.1.1 carries this mount so the existing Helm release can detect the chart
+change. XML entityID, endpoints, certificate parity and runtime issuer are
+separate owner acceptance checks.
+
+## Historical Phase 4 bring-up plan
+
+The list below records the old bring-up plan, not current installation
+status or approval to execute a cutover:
 
 1. Pin `IDP_VERSION` + `IDP_SHA256` + `JETTY_VERSION` + `JETTY_SHA256` in the
-   Dockerfile's `ARG` lines after a known-good first pull. The current
-   placeholder `__pin_after_first_pull__` lets the build succeed on a
-   first run but provides no integrity guarantee.
+   Dockerfile's `ARG` lines after a known-good first pull. This was completed
+   for the shipped image; it is not an open prerequisite.
 2. Author the chart templates: deployment, service, ingress, configmap with
    `attribute-resolver.xml` / `attribute-filter.xml` / `metadata-providers.xml`
    / `relying-party.xml`, plus a Secret for the IdP's signing+encryption
